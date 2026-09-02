@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="SharedData/SharedData.csproj" />
+  <Project Path="TravelApp.WebAPI/TravelApp.WebAPI.csproj" />
+</Solution>

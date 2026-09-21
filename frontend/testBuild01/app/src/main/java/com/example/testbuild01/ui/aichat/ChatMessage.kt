@@ -19,6 +19,8 @@ sealed class ChatMessage {
         val suggestedEndTime: String,
         val photoUrl: String? = null,
         val photoLoading: Boolean = true,
-        val addedToSchedule: Boolean = false
+        val addedToSchedule: Boolean = false,
+        val latitude: Double? = null,
+        val longitude: Double? = null
     ) : ChatMessage()
 }

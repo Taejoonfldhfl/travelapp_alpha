@@ -9,5 +9,9 @@ data class ScheduleResponse(
     val startTime: String,
     val endTime: String,
     val order: Int,
+    val latitude: Double?,
+    val longitude: Double?,
+    val priority: Int,
+    val isEssential: Boolean,
     val createdAt: String
 )

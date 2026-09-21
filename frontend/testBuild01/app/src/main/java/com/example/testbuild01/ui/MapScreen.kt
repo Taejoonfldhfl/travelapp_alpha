@@ -26,7 +26,9 @@ fun MapScreen(
     projectName: String,
     onScheduleSelected: () -> Unit,
     onMemberSelected: () -> Unit,
-    onPlaceRecommendationSelected: () -> Unit = {}) {
+    onPlaceRecommendationSelected: () -> Unit = {},
+    onTicketScanSelected: () -> Unit = {},
+    onTicketListSelected: () -> Unit = {}) {
     val context = LocalContext.current
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
     
@@ -101,6 +103,16 @@ fun MapScreen(
             )
         }
 
+        // 티켓 목록 바로가기
+        FilledTonalButton(
+            onClick = onTicketListSelected,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(top = 50.dp, start = 16.dp)
+        ) {
+            Text("내 티켓")
+        }
+
         // Bottom Bar with 4 buttons
         Surface(
             modifier = Modifier
@@ -120,7 +132,7 @@ fun MapScreen(
                 Button(onClick = onScheduleSelected) { Text("일정") }
                 Button(onClick = { /* TODO: 기능2 */ }) { Text("가계부") }
                 Button(onClick = onPlaceRecommendationSelected) { Text("장소추천") }
-                Button(onClick = { /* TODO: 기능4 */ }) { Text("영수증") }
+                Button(onClick = onTicketScanSelected) { Text("티켓 스캔") }
                 Button(onClick = onMemberSelected) { Text("멤버") }
             }
         }

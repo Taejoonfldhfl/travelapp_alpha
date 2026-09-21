@@ -1,6 +1,9 @@
 package com.example.testbuild01.ui.aichat
 
+import android.Manifest
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -26,17 +29,46 @@ fun AiChatScreen(
     tripId: Int,
     onBack: () -> Unit
 ) {
+    val context = LocalContext.current
     val viewModel: AiChatViewModel = viewModel(
-        factory = AiChatViewModelFactory(tripId)
+        factory = AiChatViewModelFactory(tripId, context.applicationContext)
     )
 
     val messages by viewModel.messages.collectAsState()
     val isSending by viewModel.isSending.collectAsState()
-    val context = LocalContext.current
+    val showLocationConsentDialog by viewModel.showLocationConsentDialog.collectAsState()
     val listState = rememberLazyListState()
 
     var input by remember { mutableStateOf("") }
     var dialogCard by remember { mutableStateOf<ChatMessage.RecommendationCard?>(null) }
+
+    // 규칙 1: 사용자가 위치 정보 수집에 동의했는데 아직 시스템 권한이 없으면 ViewModel이
+    // 이 이벤트를 보내고, 여기서 실제 런타임 권한 다이얼로그를 띄운다 (MapScreen과 동일한 방식).
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val granted = permissions.getOrDefault(Manifest.permission.ACCESS_FINE_LOCATION, false) ||
+            permissions.getOrDefault(Manifest.permission.ACCESS_COARSE_LOCATION, false)
+        viewModel.onLocationPermissionResult(granted)
+    }
+
+    LaunchedEffect(viewModel) {
+        viewModel.locationPermissionRequests.collect {
+            locationPermissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
+        }
+    }
+
+    if (showLocationConsentDialog) {
+        LocationConsentDialog(
+            onConfirm = { viewModel.onLocationConsentResult(true) },
+            onDismiss = { viewModel.onLocationConsentResult(false) }
+        )
+    }
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
@@ -149,6 +181,35 @@ fun AiChatScreen(
             }
         )
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun LocationConsentDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("위치 정보 수집 안내") },
+        text = {
+            Text(
+                "'근처' 검색을 위해 기기의 현재 위치(GPS)를 확인해 사용합니다.\n" +
+                    "수집한 위치 정보는 주변 장소를 추천하는 용도로만 사용되며 저장되지 않습니다.\n" +
+                    "계속하시겠습니까?"
+            )
+        },
+        confirmButton = {
+            Button(onClick = onConfirm) {
+                Text("확인")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("취소")
+            }
+        }
+    )
 }
 
 @Composable

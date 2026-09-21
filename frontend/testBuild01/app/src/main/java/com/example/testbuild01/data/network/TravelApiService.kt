@@ -11,6 +11,7 @@ import com.example.testbuild01.data.model.TripMemberResponse
 import com.example.testbuild01.data.model.ScheduleResponse
 import com.example.testbuild01.data.model.ScheduleCreateRequest
 import com.example.testbuild01.data.model.ScheduleUpdateRequest
+import com.example.testbuild01.data.model.RouteOptimizationResult
 import com.example.testbuild01.data.model.AiChatRequest
 import com.example.testbuild01.data.model.AiChatResponse
 import com.example.testbuild01.data.model.AiChatSessionResponse
@@ -22,6 +23,7 @@ import retrofit2.http.Path
 import retrofit2.http.DELETE
 import retrofit2.http.PUT
 import retrofit2.http.GET
+import retrofit2.http.Query
 
 interface TravelApiService {
     @POST("api/User/login")
@@ -75,6 +77,14 @@ interface TravelApiService {
         @Path("tripId") tripId: Int,
         @Path("scheduleId") scheduleId: Int
     ): Call<Void>
+
+    // date: "yyyy-MM-dd". apply=false면 미리보기만, apply=true면 계산한 순서를 실제로 저장.
+    @GET("api/Trip/{tripId}/RouteOptimization/{date}")
+    fun optimizeRoute(
+        @Path("tripId") tripId: Int,
+        @Path("date") date: String,
+        @Query("apply") apply: Boolean
+    ): Call<RouteOptimizationResult>
 
     @POST("api/Trip/{tripId}/AiChat/sessions")
     fun createAiChatSession(

@@ -5,6 +5,8 @@ using Microsoft.OpenApi.Models;
 using System.Text;
 using TravelApp.WebAPI.Data;
 using TravelApp.WebAPI.Services.Llm;
+using TravelApp.WebAPI.Services.PlaceSearch;
+using TravelApp.WebAPI.Services.RouteOptimization;
 
 namespace TravelApp.WebAPI
 {
@@ -52,6 +54,40 @@ namespace TravelApp.WebAPI
                 options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
             builder.Services.AddHttpClient<AnthropicLlmClient>();
             builder.Services.AddHostedService<AnthropicStartupValidator>();
+
+            // 경로 최적화: 이동시간 provider는 설정("RouteOptimization:Provider")으로 교체 가능하게 분리.
+            // Tmap 사용 권한이 승인되기 전까지는 Haversine(직선거리 추정)이 기본값이다.
+            builder.Services.AddMemoryCache();
+            builder.Services.AddHttpClient<TmapTravelTimeProvider>();
+
+            var travelTimeProviderName = builder.Configuration["RouteOptimization:Provider"] ?? "Haversine";
+            if (string.Equals(travelTimeProviderName, "Tmap", StringComparison.OrdinalIgnoreCase))
+            {
+                builder.Services.AddScoped<ITravelTimeProvider>(
+                    sp => sp.GetRequiredService<TmapTravelTimeProvider>());
+            }
+            else
+            {
+                builder.Services.AddSingleton<ITravelTimeProvider, HaversineTravelTimeProvider>();
+            }
+
+            builder.Services.AddScoped<RouteOptimizationService>();
+
+            // 장소 추천(AI 챗봇)의 주변 카테고리 검색: 설정("PlaceSearch:Provider")으로 교체 가능하게 분리.
+            // Tmap 사용 권한이 승인되기 전까지는 Mock이 기본값이다.
+            builder.Services.AddHttpClient<TmapNearbyPlaceSearchProvider>();
+
+            var placeSearchProviderName = builder.Configuration["PlaceSearch:Provider"] ?? "Mock";
+            if (string.Equals(placeSearchProviderName, "Tmap", StringComparison.OrdinalIgnoreCase))
+            {
+                builder.Services.AddScoped<INearbyPlaceSearchProvider>(
+                    sp => sp.GetRequiredService<TmapNearbyPlaceSearchProvider>());
+            }
+            else
+            {
+                builder.Services.AddSingleton<INearbyPlaceSearchProvider, MockNearbyPlaceSearchProvider>();
+            }
+
             builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 .AddJwtBearer(options =>
                 {

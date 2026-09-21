@@ -9,9 +9,11 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
 // Google Places API 조회를 전담하는 레포지토리.
-// AI 응답에는 사진이 절대 포함되지 않으므로, placeName만 가지고
-// "Find Place from Text"로 place_id/photo_reference를 얻은 뒤
-// Places Photo API URL을 구성해 대표 사진 URL을 돌려준다.
+// AI 응답에는 사진/좌표가 절대 포함되지 않으므로, placeName만 가지고
+// "Find Place from Text"로 place_id/photo_reference/geometry를 얻은 뒤
+// 대표 사진 URL과 좌표(위도/경도)를 함께 돌려준다.
+// 좌표는 이후 일정에 추가할 때 ScheduleCreateRequest에 실어 보내 경로 최적화(RouteOptimization)
+// 대상에 포함되도록 하는 데 쓰인다.
 class PlacesRepository(
     private val apiKey: String
 ) {
@@ -28,46 +30,53 @@ class PlacesRepository(
             .create(PlacesApiService::class.java)
     }
 
-    // 사진 조회에 실패하거나(장소를 못 찾거나 사진이 없는 경우) 성공하면 null을 콜백에 전달한다.
-    fun fetchPlacePhotoUrl(placeName: String, onResult: (String?) -> Unit) {
+    // 장소를 찾지 못하면 사진/좌표 모두 null인 결과를 콜백에 전달한다.
+    fun fetchPlaceDetails(placeName: String, onResult: (PlaceDetails) -> Unit) {
         if (apiKey.isBlank()) {
-            onResult(null)
+            onResult(PlaceDetails())
             return
         }
 
         placesApi.findPlaceFromText(
             input = placeName,
             inputType = "textquery",
-            fields = "place_id,photos",
+            fields = "place_id,photos,geometry",
             apiKey = apiKey
         ).enqueue(object : Callback<FindPlaceResponse> {
             override fun onResponse(
                 call: Call<FindPlaceResponse>,
                 response: Response<FindPlaceResponse>
             ) {
-                val photoReference = response.body()
-                    ?.candidates
-                    ?.firstOrNull()
-                    ?.photos
-                    ?.firstOrNull()
-                    ?.photoReference
+                val candidate = response.body()?.candidates?.firstOrNull()
 
-                if (photoReference.isNullOrBlank()) {
-                    onResult(null)
-                    return
+                val photoReference = candidate?.photos?.firstOrNull()?.photoReference
+                val photoUrl = if (photoReference.isNullOrBlank()) {
+                    null
+                } else {
+                    "${PLACES_BASE_URL}maps/api/place/photo" +
+                        "?maxwidth=$PHOTO_MAX_WIDTH" +
+                        "&photo_reference=$photoReference" +
+                        "&key=$apiKey"
                 }
 
-                val photoUrl = "${PLACES_BASE_URL}maps/api/place/photo" +
-                    "?maxwidth=$PHOTO_MAX_WIDTH" +
-                    "&photo_reference=$photoReference" +
-                    "&key=$apiKey"
-
-                onResult(photoUrl)
+                onResult(
+                    PlaceDetails(
+                        photoUrl = photoUrl,
+                        latitude = candidate?.geometry?.location?.lat,
+                        longitude = candidate?.geometry?.location?.lng
+                    )
+                )
             }
 
             override fun onFailure(call: Call<FindPlaceResponse>, t: Throwable) {
-                onResult(null)
+                onResult(PlaceDetails())
             }
         })
     }
 }
+
+data class PlaceDetails(
+    val photoUrl: String? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null
+)

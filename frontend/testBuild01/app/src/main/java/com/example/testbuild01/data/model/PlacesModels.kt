@@ -11,10 +11,20 @@ data class FindPlaceResponse(
 data class PlaceCandidate(
     @SerializedName("place_id")
     val placeId: String? = null,
-    val photos: List<PlacePhoto>? = null
+    val photos: List<PlacePhoto>? = null,
+    val geometry: PlaceGeometry? = null
 )
 
 data class PlacePhoto(
     @SerializedName("photo_reference")
     val photoReference: String? = null
+)
+
+data class PlaceGeometry(
+    val location: PlaceLocation? = null
+)
+
+data class PlaceLocation(
+    val lat: Double? = null,
+    val lng: Double? = null
 )

@@ -20,7 +20,8 @@ import retrofit2.Response
 @Composable
 fun ProjectSelectionScreen(
     onProjectSelected: (TripResponse) -> Unit,
-    onCreateTripSelected: () -> Unit
+    onCreateTripSelected: () -> Unit,
+    onTicketsSelected: () -> Unit = {}
 ) {
     val context = LocalContext.current
 
@@ -73,7 +74,12 @@ fun ProjectSelectionScreen(
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { Text("여행 프로젝트 선택") }
+                title = { Text("여행 프로젝트 선택") },
+                actions = {
+                    TextButton(onClick = onTicketsSelected) {
+                        Text("티켓")
+                    }
+                }
             )
         },
 

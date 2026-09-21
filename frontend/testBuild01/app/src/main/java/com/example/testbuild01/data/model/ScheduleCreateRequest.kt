@@ -6,5 +6,7 @@ data class ScheduleCreateRequest(
     val description: String,
     val startTime: String,
     val endTime: String,
-    val order: Int
+    val order: Int,
+    val latitude: Double? = null,
+    val longitude: Double? = null
 )

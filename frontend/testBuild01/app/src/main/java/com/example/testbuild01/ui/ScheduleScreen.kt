@@ -9,6 +9,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.example.testbuild01.data.model.RouteOptimizationResult
 import com.example.testbuild01.data.model.ScheduleCreateRequest
 import com.example.testbuild01.data.model.ScheduleResponse
 import com.example.testbuild01.data.network.RetrofitClient
@@ -34,6 +35,23 @@ fun ScheduleScreen(
 
     var isLoading by remember {
         mutableStateOf(true)
+    }
+
+    // 경로 최적화 미리보기 상태. null이 아니면 화면이 "미리보기 모드"로 전환된다.
+    var previewResult by remember {
+        mutableStateOf<RouteOptimizationResult?>(null)
+    }
+
+    var previewDate by remember {
+        mutableStateOf<String?>(null)
+    }
+
+    var isOptimizing by remember {
+        mutableStateOf(false)
+    }
+
+    var showDatePickerDialog by remember {
+        mutableStateOf(false)
     }
 
     fun loadSchedules() {
@@ -75,6 +93,138 @@ fun ScheduleScreen(
             })
     }
 
+    fun requestOptimization(date: String) {
+        isOptimizing = true
+
+        RetrofitClient.instance
+            .optimizeRoute(tripId, date, apply = false)
+            .enqueue(object : Callback<RouteOptimizationResult> {
+
+                override fun onResponse(
+                    call: Call<RouteOptimizationResult>,
+                    response: Response<RouteOptimizationResult>
+                ) {
+                    isOptimizing = false
+
+                    if (!response.isSuccessful) {
+                        Toast.makeText(
+                            context,
+                            "경로 최적화 실패 (${response.code()})",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        return
+                    }
+
+                    val result = response.body()
+
+                    if (result == null || result.stops.size < 2) {
+                        Toast.makeText(
+                            context,
+                            "좌표가 등록된 장소가 2개 미만이라 경로를 최적화할 수 없습니다.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        return
+                    }
+
+                    previewResult = result
+                    previewDate = date
+
+                    if (result.skippedSchedulesWithoutCoordinates.isNotEmpty()) {
+                        Toast.makeText(
+                            context,
+                            "좌표가 없는 일정은 최적화에서 제외됐습니다: " +
+                                result.skippedSchedulesWithoutCoordinates.joinToString(", "),
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+
+                override fun onFailure(
+                    call: Call<RouteOptimizationResult>,
+                    t: Throwable
+                ) {
+                    isOptimizing = false
+
+                    Toast.makeText(
+                        context,
+                        "서버 연결 실패",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            })
+    }
+
+    fun confirmOptimization() {
+        val date = previewDate ?: return
+
+        isOptimizing = true
+
+        RetrofitClient.instance
+            .optimizeRoute(tripId, date, apply = true)
+            .enqueue(object : Callback<RouteOptimizationResult> {
+
+                override fun onResponse(
+                    call: Call<RouteOptimizationResult>,
+                    response: Response<RouteOptimizationResult>
+                ) {
+                    isOptimizing = false
+
+                    if (response.isSuccessful) {
+                        Toast.makeText(
+                            context,
+                            "최적화된 경로로 확정되었습니다.",
+                            Toast.LENGTH_SHORT
+                        ).show()
+
+                        previewResult = null
+                        previewDate = null
+                        loadSchedules()
+                    } else {
+                        Toast.makeText(
+                            context,
+                            "확정 실패 (${response.code()})",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+
+                override fun onFailure(
+                    call: Call<RouteOptimizationResult>,
+                    t: Throwable
+                ) {
+                    isOptimizing = false
+
+                    Toast.makeText(
+                        context,
+                        "서버 연결 실패",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            })
+    }
+
+    fun cancelOptimizationPreview() {
+        previewResult = null
+        previewDate = null
+    }
+
+    fun onOptimizeButtonClicked() {
+        if (schedules.isEmpty()) {
+            Toast.makeText(context, "등록된 일정이 없습니다.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val dates = schedules
+            .map { it.startTime.take(10) }
+            .distinct()
+            .sorted()
+
+        when {
+            dates.size == 1 -> requestOptimization(dates.first())
+            dates.size > 1 -> showDatePickerDialog = true
+        }
+    }
+
     LaunchedEffect(tripId) {
         loadSchedules()
     }
@@ -93,15 +243,62 @@ fun ScheduleScreen(
         },
 
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = {
-                    showAddDialog = true
+            if (previewResult == null) {
+                FloatingActionButton(
+                    onClick = {
+                        showAddDialog = true
+                    }
+                ) {
+                    Text("+")
                 }
-            ) {
-                Text("+")
+            }
+        },
+
+        bottomBar = {
+            BottomAppBar {
+                if (previewResult == null) {
+
+                    Button(
+                        onClick = { onOptimizeButtonClicked() },
+                        enabled = !isOptimizing && schedules.isNotEmpty(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                    ) {
+                        Text(if (isOptimizing) "경로 계산 중..." else "경로 최적화")
+                    }
+
+                } else {
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+
+                        OutlinedButton(
+                            onClick = { cancelOptimizationPreview() },
+                            enabled = !isOptimizing,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("취소")
+                        }
+
+                        Button(
+                            onClick = { confirmOptimization() },
+                            enabled = !isOptimizing,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(if (isOptimizing) "확정 중..." else "확인")
+                        }
+                    }
+                }
             }
         }
     ) { paddingValues ->
+
+        val preview = previewResult
 
         if (isLoading) {
 
@@ -111,6 +308,59 @@ fun ScheduleScreen(
                     .padding(paddingValues)
             ) {
                 CircularProgressIndicator()
+            }
+
+        } else if (preview != null) {
+
+            // 미리보기 모드: 서버가 계산한 최적 순서대로 장소를 보여준다.
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+            ) {
+
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "${preview.date} 최적 경로 미리보기",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("예상 총 이동시간: ${formatDurationMinutes(preview.totalTravelTimeSeconds)}")
+                        Text("확인을 누르면 이 순서로 확정됩니다.")
+                    }
+                }
+
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(preview.stops) { stop ->
+
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text(
+                                    text = "${stop.visitOrder + 1}. ${stop.title}",
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+
+                                if (stop.placeName.isNotBlank()) {
+                                    Text("장소: ${stop.placeName}")
+                                }
+
+                                if (stop.visitOrder > 0) {
+                                    Text("이전 장소에서 이동: ${formatDurationMinutes(stop.travelTimeFromPreviousSeconds)}")
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
         } else if (schedules.isEmpty()) {
@@ -166,6 +416,45 @@ fun ScheduleScreen(
             }
         )
     }
+
+    if (showDatePickerDialog) {
+
+        val dates = schedules
+            .map { it.startTime.take(10) }
+            .distinct()
+            .sorted()
+
+        AlertDialog(
+            onDismissRequest = { showDatePickerDialog = false },
+            title = { Text("최적화할 날짜 선택") },
+            text = {
+                Column {
+                    dates.forEach { date ->
+                        TextButton(
+                            onClick = {
+                                showDatePickerDialog = false
+                                requestOptimization(date)
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(date)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showDatePickerDialog = false }) {
+                    Text("닫기")
+                }
+            }
+        )
+    }
+}
+
+private fun formatDurationMinutes(seconds: Double): String {
+    val rawMinutes = seconds / 60.0
+    val minutes = if (rawMinutes in 0.0..1.0 && seconds > 0) 1L else Math.round(rawMinutes)
+    return "${minutes}분"
 }
 
 @Composable
@@ -289,6 +578,9 @@ fun AddScheduleDialog(
         mutableStateOf("")
     }
 
+    var latitude by remember { mutableStateOf("") }
+    var longitude by remember { mutableStateOf("") }
+
     AlertDialog(
         onDismissRequest = onDismiss,
 
@@ -360,6 +652,41 @@ fun AddScheduleDialog(
                     },
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                Spacer(
+                    modifier = Modifier.height(8.dp)
+                )
+
+                Text(
+                    "경로 최적화에 쓸 좌표 (선택, 비워두면 최적화 대상에서 제외됩니다)",
+                    style = MaterialTheme.typography.bodySmall
+                )
+
+                Spacer(
+                    modifier = Modifier.height(4.dp)
+                )
+
+                OutlinedTextField(
+                    value = latitude,
+                    onValueChange = { latitude = it },
+                    label = {
+                        Text("위도 (예: 37.5665)")
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(
+                    modifier = Modifier.height(8.dp)
+                )
+
+                OutlinedTextField(
+                    value = longitude,
+                    onValueChange = { longitude = it },
+                    label = {
+                        Text("경도 (예: 126.9780)")
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         },
 
@@ -390,7 +717,9 @@ fun AddScheduleDialog(
                             description = description,
                             startTime = startTime,
                             endTime = endTime,
-                            order = 0
+                            order = 0,
+                            latitude = latitude.toDoubleOrNull(),
+                            longitude = longitude.toDoubleOrNull()
                         )
 
                     RetrofitClient.instance

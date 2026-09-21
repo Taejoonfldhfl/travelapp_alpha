@@ -70,7 +70,11 @@ namespace TravelApp.WebAPI.Controllers
                 Description = request.Description,
                 StartTime = request.StartTime,
                 EndTime = request.EndTime,
-                Order = request.Order
+                Order = request.Order,
+                Latitude = request.Latitude,
+                Longitude = request.Longitude,
+                Priority = request.Priority,
+                IsEssential = request.IsEssential
             };
 
             _context.Schedules.Add(schedule);
@@ -93,10 +97,13 @@ namespace TravelApp.WebAPI.Controllers
                 return Forbid();
             }
 
+            // 날짜(그룹)가 우선, 같은 날짜 안에서는 Order가 우선(경로 최적화 결과 반영),
+            // Order가 같으면(기본값 0 등 미최적화 상태) 기존처럼 StartTime으로 정렬한다.
             var schedules = await _context.Schedules
                 .Where(s => s.TripId == tripId)
-                .OrderBy(s => s.StartTime)
+                .OrderBy(s => s.StartTime.Date)
                 .ThenBy(s => s.Order)
+                .ThenBy(s => s.StartTime)
                 .Select(s => new ScheduleResponseDto
                 {
                     Id = s.Id,
@@ -107,6 +114,10 @@ namespace TravelApp.WebAPI.Controllers
                     StartTime = s.StartTime,
                     EndTime = s.EndTime,
                     Order = s.Order,
+                    Latitude = s.Latitude,
+                    Longitude = s.Longitude,
+                    Priority = s.Priority,
+                    IsEssential = s.IsEssential,
                     CreatedAt = s.CreatedAt
                 })
                 .ToListAsync();
@@ -192,6 +203,10 @@ namespace TravelApp.WebAPI.Controllers
             schedule.StartTime = request.StartTime;
             schedule.EndTime = request.EndTime;
             schedule.Order = request.Order;
+            schedule.Latitude = request.Latitude;
+            schedule.Longitude = request.Longitude;
+            schedule.Priority = request.Priority;
+            schedule.IsEssential = request.IsEssential;
 
             await _context.SaveChangesAsync();
 
@@ -244,6 +259,10 @@ namespace TravelApp.WebAPI.Controllers
                 StartTime = schedule.StartTime,
                 EndTime = schedule.EndTime,
                 Order = schedule.Order,
+                Latitude = schedule.Latitude,
+                Longitude = schedule.Longitude,
+                Priority = schedule.Priority,
+                IsEssential = schedule.IsEssential,
                 CreatedAt = schedule.CreatedAt
             };
         }

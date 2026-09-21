@@ -16,7 +16,15 @@ import com.example.testbuild01.data.model.AiChatRequest
 import com.example.testbuild01.data.model.AiChatResponse
 import com.example.testbuild01.data.model.AiChatSessionResponse
 
+import com.example.testbuild01.data.model.BudgetSummary
+import com.example.testbuild01.data.model.BudgetUpdateRequest
+import com.example.testbuild01.data.model.ExpenseBreakdownItem
+import com.example.testbuild01.data.model.ExpenseResponse
+import com.example.testbuild01.data.model.ExpenseUpsertRequest
+import com.example.testbuild01.data.model.SettlementTransfer
+
 import retrofit2.Call
+import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.POST
 import retrofit2.http.Path
@@ -97,4 +105,45 @@ interface TravelApiService {
         @Path("sessionId") sessionId: Int,
         @Body request: AiChatRequest
     ): Call<AiChatResponse>
+
+    // ---- 가계부 (suspend) ----
+
+    @GET("api/Trip/{id}/members")
+    suspend fun getTripMembersSuspend(@Path("id") tripId: Int): Response<List<TripMemberResponse>>
+
+    @GET("api/Trip/{tripId}/Schedule")
+    suspend fun getSchedulesSuspend(@Path("tripId") tripId: Int): Response<List<ScheduleResponse>>
+
+    @GET("api/Trip/{tripId}/expenses")
+    suspend fun getExpenses(@Path("tripId") tripId: Int): Response<List<ExpenseResponse>>
+
+    @POST("api/Trip/{tripId}/expenses")
+    suspend fun createExpense(
+        @Path("tripId") tripId: Int,
+        @Body request: ExpenseUpsertRequest
+    ): Response<ExpenseResponse>
+
+    @PUT("api/Expense/{id}")
+    suspend fun updateExpense(
+        @Path("id") expenseId: Int,
+        @Body request: ExpenseUpsertRequest
+    ): Response<ExpenseResponse>
+
+    @DELETE("api/Expense/{id}")
+    suspend fun deleteExpense(@Path("id") expenseId: Int): Response<Void>
+
+    @PUT("api/Trip/{tripId}/budget")
+    suspend fun setBudget(
+        @Path("tripId") tripId: Int,
+        @Body request: BudgetUpdateRequest
+    ): Response<Void>
+
+    @GET("api/Trip/{tripId}/budget-summary")
+    suspend fun getBudgetSummary(@Path("tripId") tripId: Int): Response<BudgetSummary>
+
+    @GET("api/Trip/{tripId}/expense-breakdown")
+    suspend fun getExpenseBreakdown(@Path("tripId") tripId: Int): Response<List<ExpenseBreakdownItem>>
+
+    @GET("api/Trip/{tripId}/settlement")
+    suspend fun getSettlement(@Path("tripId") tripId: Int): Response<List<SettlementTransfer>>
 }

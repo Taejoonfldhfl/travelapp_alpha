@@ -33,6 +33,13 @@ import com.example.testbuild01.ui.ticket.TicketListScreen
 import com.example.testbuild01.ui.ticket.TicketManualEntryScreen
 import com.example.testbuild01.ui.ticket.TicketScanScreen
 import com.example.testbuild01.ui.ticket.TicketViewModel
+import android.net.Uri
+import com.example.testbuild01.ui.expense.ExpenseEditScreen
+import com.example.testbuild01.ui.expense.ExpenseListScreen
+import com.example.testbuild01.ui.expense.ExpenseStatsScreen
+import com.example.testbuild01.ui.expense.ExpenseViewModel
+import com.example.testbuild01.ui.expense.ReceiptScannerScreen
+import com.example.testbuild01.ui.expense.SettlementScreen
 
 class MainActivity : ComponentActivity() {
     // 알림을 탭해 들어온 티켓 id. TravelApp이 소비하면 null로 되돌린다.
@@ -71,6 +78,10 @@ fun TravelApp(pendingTicketId: MutableState<Long?> = mutableStateOf(null)) {
     val navController = rememberNavController()
     // 스캔 → 수동 입력 → 목록이 상태를 공유하도록 Activity 범위로 둔다.
     val ticketViewModel: TicketViewModel = viewModel(
+        viewModelStoreOwner = LocalContext.current as ComponentActivity
+    )
+    // 가계부 관련 화면들이 공유하는 ViewModel (Activity 범위)
+    val expenseViewModel: ExpenseViewModel = viewModel(
         viewModelStoreOwner = LocalContext.current as ComponentActivity
     )
 
@@ -147,7 +158,69 @@ fun TravelApp(pendingTicketId: MutableState<Long?> = mutableStateOf(null)) {
                 },
                 onTicketListSelected = {
                     navController.navigate("ticket_list")
+                },
+                onExpenseSelected = {
+                    navController.navigate("expense_list/$tripId/${Uri.encode(projectName)}")
                 })
+        }
+        composable(
+            route = "expense_list/{tripId}/{title}",
+            arguments = listOf(
+                navArgument("tripId") { type = NavType.IntType },
+                navArgument("title") { type = NavType.StringType }
+            )
+        ) { entry ->
+            val tripId = entry.arguments?.getInt("tripId") ?: 0
+            val title = entry.arguments?.getString("title") ?: ""
+            ExpenseListScreen(
+                viewModel = expenseViewModel,
+                tripId = tripId,
+                onBack = { navController.popBackStack() },
+                onScan = { navController.navigate("receipt_scan/$tripId") },
+                onAdd = {
+                    expenseViewModel.updateScannedAmount(null)
+                    navController.navigate("expense_edit/0")
+                },
+                onEdit = { id -> navController.navigate("expense_edit/$id") },
+                onStats = { navController.navigate("expense_stats") },
+                onSettlement = { navController.navigate("expense_settlement/${Uri.encode(title)}") }
+            )
+        }
+        composable(
+            route = "receipt_scan/{tripId}",
+            arguments = listOf(navArgument("tripId") { type = NavType.IntType })
+        ) { entry ->
+            val tripId = entry.arguments?.getInt("tripId") ?: 0
+            LaunchedEffect(tripId) { expenseViewModel.load(tripId) }
+            ReceiptScannerScreen(
+                viewModel = expenseViewModel,
+                onBack = { navController.popBackStack() },
+                onConfirm = { navController.navigate("expense_edit/0") }
+            )
+        }
+        composable(
+            route = "expense_edit/{expenseId}",
+            arguments = listOf(navArgument("expenseId") { type = NavType.IntType })
+        ) { entry ->
+            val id = entry.arguments?.getInt("expenseId") ?: 0
+            ExpenseEditScreen(
+                viewModel = expenseViewModel,
+                expenseId = id.takeIf { it != 0 },
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable("expense_stats") {
+            ExpenseStatsScreen(viewModel = expenseViewModel, onBack = { navController.popBackStack() })
+        }
+        composable(
+            route = "expense_settlement/{title}",
+            arguments = listOf(navArgument("title") { type = NavType.StringType })
+        ) { entry ->
+            SettlementScreen(
+                viewModel = expenseViewModel,
+                tripTitle = entry.arguments?.getString("title") ?: "",
+                onBack = { navController.popBackStack() }
+            )
         }
         composable(
             route = "members/{tripId}",

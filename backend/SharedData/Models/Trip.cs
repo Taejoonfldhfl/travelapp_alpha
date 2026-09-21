@@ -26,10 +26,16 @@ namespace SharedData.Models
         // 생성 시간
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+        // 여행 예산 (미설정이면 null)
+        public decimal? BudgetAmount { get; set; }
+
         // 여행 맴버 목록
         public List<TripMember> Members { get; set; } = new();
 
         // 여행 일정 목록
         public List<Schedule> Schedules { get; set; } = new();
+
+        // 여행 지출 목록
+        public List<Expense> Expenses { get; set; } = new();
     }
 }

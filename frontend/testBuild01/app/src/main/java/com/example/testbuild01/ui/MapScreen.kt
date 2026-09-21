@@ -28,7 +28,8 @@ fun MapScreen(
     onMemberSelected: () -> Unit,
     onPlaceRecommendationSelected: () -> Unit = {},
     onTicketScanSelected: () -> Unit = {},
-    onTicketListSelected: () -> Unit = {}) {
+    onTicketListSelected: () -> Unit = {},
+    onExpenseSelected: () -> Unit = {}) {
     val context = LocalContext.current
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
     
@@ -130,7 +131,7 @@ fun MapScreen(
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
                 Button(onClick = onScheduleSelected) { Text("일정") }
-                Button(onClick = { /* TODO: 기능2 */ }) { Text("가계부") }
+                Button(onClick = onExpenseSelected) { Text("가계부") }
                 Button(onClick = onPlaceRecommendationSelected) { Text("장소추천") }
                 Button(onClick = onTicketScanSelected) { Text("티켓 스캔") }
                 Button(onClick = onMemberSelected) { Text("멤버") }

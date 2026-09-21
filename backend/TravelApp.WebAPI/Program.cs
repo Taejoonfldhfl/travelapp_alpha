@@ -18,7 +18,11 @@ namespace TravelApp.WebAPI
 
             // Add services to the container.
 
-            builder.Services.AddControllers();
+            builder.Services.AddControllers()
+                .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(
+                    new System.Text.Json.Serialization.JsonStringEnumConverter()));
+            builder.Services.AddSingleton<TravelApp.WebAPI.Services.Expenses.IPushNotifier,
+                TravelApp.WebAPI.Services.Expenses.LogPushNotifier>();
 
             // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
             // builder.Services.AddOpenApi();

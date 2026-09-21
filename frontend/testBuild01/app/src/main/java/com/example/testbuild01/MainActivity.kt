@@ -38,6 +38,7 @@ import com.example.testbuild01.ui.expense.ExpenseEditScreen
 import com.example.testbuild01.ui.expense.ExpenseListScreen
 import com.example.testbuild01.ui.expense.ExpenseStatsScreen
 import com.example.testbuild01.ui.expense.ExpenseViewModel
+import com.example.testbuild01.ui.expense.MyExpenseScreen
 import com.example.testbuild01.ui.expense.ReceiptScannerScreen
 import com.example.testbuild01.ui.expense.SettlementScreen
 
@@ -183,8 +184,12 @@ fun TravelApp(pendingTicketId: MutableState<Long?> = mutableStateOf(null)) {
                 },
                 onEdit = { id -> navController.navigate("expense_edit/$id") },
                 onStats = { navController.navigate("expense_stats") },
-                onSettlement = { navController.navigate("expense_settlement/${Uri.encode(title)}") }
+                onSettlement = { navController.navigate("expense_settlement/${Uri.encode(title)}") },
+                onMine = { navController.navigate("expense_mine") }
             )
+        }
+        composable("expense_mine") {
+            MyExpenseScreen(viewModel = expenseViewModel, onBack = { navController.popBackStack() })
         }
         composable(
             route = "receipt_scan/{tripId}",

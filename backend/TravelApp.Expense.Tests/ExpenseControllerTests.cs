@@ -179,6 +179,40 @@ public class ExpenseControllerTests
         Assert.IsType<BadRequestObjectResult>(result.Result);
     }
 
+    [Fact]
+    public async Task GetExpenses_IncludesSplitsForEachExpense()
+    {
+        var (controller, db) = Create();
+        SeedTrip(db, null);
+        db.Expenses.Add(new SharedExpense
+        {
+            TripId = 1, PaidByUserId = 1, Amount = 30000m, Category = ExpenseCategory.FOOD,
+            Date = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+            Splits = new List<ExpenseSplit>
+            {
+                new() { UserId = 1, ShareAmount = 10000m },
+                new() { UserId = 2, ShareAmount = 20000m }
+            }
+        });
+        db.Expenses.Add(new SharedExpense
+        {
+            TripId = 1, PaidByUserId = 2, Amount = 5000m, Category = ExpenseCategory.ETC,
+            Date = new DateTime(2026, 10, 2, 0, 0, 0, DateTimeKind.Utc),
+            Splits = new List<ExpenseSplit> { new() { UserId = 2, ShareAmount = 5000m } }
+        });
+        db.SaveChanges();
+
+        var result = await controller.GetExpenses(1);
+
+        var list = (List<ExpenseResponseDto>)Assert.IsType<OkObjectResult>(result.Result).Value!;
+        Assert.Equal(2, list.Count);
+        Assert.All(list, e => Assert.NotEmpty(e.Splits));
+        var first = list.Single(e => e.Amount == 30000m);
+        Assert.Equal(10000m, first.Splits.Single(s => s.UserId == 1).ShareAmount);
+        Assert.Equal(20000m, first.Splits.Single(s => s.UserId == 2).ShareAmount);
+        Assert.Equal(list.Single(e => e.Amount == 5000m).Splits.Single().UserId, 2);
+    }
+
     // TODO: 수정/삭제 시 분담 교체, 예산 설정 권한(Owner 전용), settlement 엔드포인트 통합 테스트
     [Fact(Skip = "skeleton")]
     public Task UpdateExpense_ReplacesSplits() => Task.CompletedTask;

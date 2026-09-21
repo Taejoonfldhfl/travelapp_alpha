@@ -30,7 +30,8 @@ fun ExpenseListScreen(
     onAdd: () -> Unit,
     onEdit: (Int) -> Unit,
     onStats: () -> Unit,
-    onSettlement: () -> Unit
+    onSettlement: () -> Unit,
+    onMine: () -> Unit
 ) {
     LaunchedEffect(tripId) { viewModel.load(tripId) }
     var showBudgetDialog by remember { mutableStateOf(false) }
@@ -62,6 +63,7 @@ fun ExpenseListScreen(
             ) {
                 OutlinedButton(onClick = onStats, modifier = Modifier.weight(1f)) { Text("통계") }
                 OutlinedButton(onClick = onSettlement, modifier = Modifier.weight(1f)) { Text("정산") }
+                OutlinedButton(onClick = onMine, modifier = Modifier.weight(1f)) { Text("내 지출") }
             }
 
             if (viewModel.expenses.isEmpty() && !viewModel.isLoading) {

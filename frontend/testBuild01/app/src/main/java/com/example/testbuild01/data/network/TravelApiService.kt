@@ -53,7 +53,7 @@ interface TravelApiService {
         @Path("id") tripId: Int
     ): Call<List<TripMemberResponse>>
 
-    @POST("api/Trip/{id}/member")
+    @POST("api/Trip/{id}/members")
     fun addTripMember(
         @Path("id") tripId: Int,
         @Body request: TripMemberAddRequest

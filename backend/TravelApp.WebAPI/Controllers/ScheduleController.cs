@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SharedData.DTOs;
@@ -62,6 +62,13 @@ namespace TravelApp.WebAPI.Controllers
                 return BadRequest("일정은 여행 기간 내에 등록해야 합니다.");
             }
 
+            var overlapping = await _context.FindOverlappingSchedulesAsync(
+                tripId, request.StartTime, request.EndTime, request.IsHotelCheckIn);
+
+            if (overlapping.Count > 0)
+            {
+                return BadRequest(BuildOverlapMessage(overlapping));
+            }
 
             var schedule = new Schedule
             {
@@ -200,6 +207,13 @@ namespace TravelApp.WebAPI.Controllers
                 return NotFound("일정을 찾을 수 없습니다.");
             }
 
+            var overlapping = await _context.FindOverlappingSchedulesAsync(
+                tripId, request.StartTime, request.EndTime, request.IsHotelCheckIn, excludeScheduleId: scheduleId);
+
+            if (overlapping.Count > 0)
+            {
+                return BadRequest(BuildOverlapMessage(overlapping));
+            }
 
             schedule.Title = request.Title;
             schedule.PlaceName = request.PlaceName;
@@ -250,6 +264,26 @@ namespace TravelApp.WebAPI.Controllers
             {
                 message = "일정이 삭제되었습니다."
             });
+        }
+
+        // 앱은 400 본문 중 평문만 사용자에게 보여주므로(최대 200자) JSON이 아닌 문장으로 돌려준다.
+        // 겹치는 일정이 많으면 앞의 몇 개만 적고 나머지는 개수로 줄인다.
+        private const int MaxOverlapsInMessage = 3;
+
+        private static string BuildOverlapMessage(List<Schedule> overlapping)
+        {
+            var listed = overlapping
+                .Take(MaxOverlapsInMessage)
+                .Select(s => $"'{s.Title}' ({s.StartTime:MM-dd HH:mm}~{s.EndTime:MM-dd HH:mm})");
+
+            string message = "다른 일정과 시간이 겹칩니다: " + string.Join(", ", listed);
+
+            if (overlapping.Count > MaxOverlapsInMessage)
+            {
+                message += $" 외 {overlapping.Count - MaxOverlapsInMessage}건";
+            }
+
+            return message;
         }
 
         private static ScheduleResponseDto ToResponse(Schedule schedule)

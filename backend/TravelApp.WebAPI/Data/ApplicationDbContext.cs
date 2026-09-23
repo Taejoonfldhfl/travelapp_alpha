@@ -20,6 +20,33 @@ public class ApplicationDbContext : DbContext
 
     public DbSet<ExpenseSplit> ExpenseSplits { get; set; }
 
+    // 같은 여행에서 [start, end) 구간과 시간이 겹치는 기존 일정들을 시작 시간 순으로 돌려준다.
+    // 호텔 체크인 일정은 체크인~체크아웃 전체를 감싸도록 설계되어 다른 활동과 겹치는 게 정상이므로,
+    // 신규 쪽이 호텔 일정이면 검사하지 않고, 기존 쪽의 호텔 일정도 비교 대상에서 뺀다.
+    // 수정 시에는 excludeScheduleId로 자기 자신을 제외한다.
+    public async Task<List<SharedData.Models.Schedule>> FindOverlappingSchedulesAsync(
+        int tripId,
+        DateTime start,
+        DateTime end,
+        bool isHotelCheckIn,
+        int? excludeScheduleId = null)
+    {
+        if (isHotelCheckIn)
+        {
+            return new List<SharedData.Models.Schedule>();
+        }
+
+        return await Schedules
+            .Where(s =>
+                s.TripId == tripId &&
+                !s.IsHotelCheckIn &&
+                (excludeScheduleId == null || s.Id != excludeScheduleId) &&
+                s.StartTime < end &&
+                start < s.EndTime)
+            .OrderBy(s => s.StartTime)
+            .ToListAsync();
+    }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

@@ -7,8 +7,15 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
+  <!-- 실제 외부 API를 부르는 수동 검토 테스트([Trait("Category", "Manual")])는 기본 실행에서 뺀다.
+       dotnet test 에 filter 옵션으로 필터를 직접 주면 그 값이 이 기본값 대신 쓰인다. -->
+  <PropertyGroup Condition="'$(VSTestTestCaseFilter)' == ''">
+    <VSTestTestCaseFilter>Category!=Manual</VSTestTestCaseFilter>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.7" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />

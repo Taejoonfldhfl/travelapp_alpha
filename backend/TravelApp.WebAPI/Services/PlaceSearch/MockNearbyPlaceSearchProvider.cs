@@ -11,6 +11,7 @@ namespace TravelApp.WebAPI.Services.PlaceSearch
     public class MockNearbyPlaceSearchProvider : INearbyPlaceSearchProvider
     {
         private const double EarthRadiusMeters = 6_371_000;
+        private const string SourceName = "Mock";
 
         // SearchByNameAsync는 중심 좌표를 받지 않으므로(사용자 위치와 무관하게 동작해야 해서),
         // mock 좌표를 만들 때 쓸 임시 기준점(서울시청)이다. 실제 Tmap 이름 검색으로 교체되면 불필요해진다.
@@ -30,6 +31,15 @@ namespace TravelApp.WebAPI.Services.PlaceSearch
             ("올리브영", "편의점", 190, 300),
         ];
 
+        // 메뉴 키워드 검색(SearchText)에서만 나오는 장소들. (이름, 카테고리, 메뉴, 방위각, 거리)
+        // 업종 검색(음식점 전체)에서는 나오지 않고, '파스타'처럼 메뉴로 찾을 때만 나와서 키워드 반영 여부를 확인할 수 있다.
+        private static readonly (string Name, string Category, string Menu, double BearingDeg, double DistanceMeters)[] MenuTemplates =
+        [
+            ("파스타 하우스", "음식점", "파스타", 45, 300),
+            ("트라토리아 로마", "음식점", "파스타", 120, 650),
+            ("화덕피자 공방", "음식점", "피자", 250, 400),
+        ];
+
         // 이름 검색에서만 나오는, 폐업했거나 정보가 오래된 장소들. LLM이 학습 시점 지식으로
         // 이미 문 닫은 곳을 추천하는 상황을 mock으로 재현하기 위한 데이터다. SearchNearbyAsync
         // (주변 카테고리 검색) 결과에는 일부러 포함하지 않는다 — 실제 주변 검색 API도 폐업한
@@ -44,12 +54,14 @@ namespace TravelApp.WebAPI.Services.PlaceSearch
         // 위치와 무관). Mock에서는 Templates 안에 있는 이름만 "실존하며 영업 중"으로,
         // ClosedOrStaleEntries에 있는 이름은 "실존하지만 폐업했거나 정보가 오래됨"으로 간주한다
         // (실제 서비스 기준점이 없으므로 서울시청을 임시 기준점으로 삼아 위치를 만든다).
-        // 둘 다에 없는 이름(=LLM이 지어낸 장소)은 null을 반환해 규칙 2가 걸러내도록 한다.
-        public Task<PlaceSearchResultDto?> SearchByNameAsync(
+        // 둘 다에 없는 이름(=LLM이 지어낸 장소)은 빈 목록을 반환해 규칙 2가 걸러내도록 한다.
+        // 결과 순서는 Templates, ClosedOrStaleEntries에 정의된 순서이고 최대 MaxNameSearchResults건이다.
+        public Task<IReadOnlyList<PlaceSearchResultDto>> SearchByNameAsync(
             string placeName,
             CancellationToken cancellationToken = default)
         {
             string normalizedQuery = Normalize(placeName);
+            var results = new List<PlaceSearchResultDto>();
 
             foreach (var template in Templates)
             {
@@ -62,14 +74,17 @@ namespace TravelApp.WebAPI.Services.PlaceSearch
                     DefaultReferenceLatitude, DefaultReferenceLongitude,
                     template.BearingDeg, template.DistanceMeters);
 
-                return Task.FromResult<PlaceSearchResultDto?>(new PlaceSearchResultDto
+                results.Add(new PlaceSearchResultDto
                 {
                     PlaceId = $"mock:{template.Name}:{lat:F5},{lng:F5}",
                     Name = template.Name,
+                    CanonicalName = template.Name,
                     Category = template.Category,
                     Address = "이름 검색으로 확인된 장소 (mock 데이터)",
                     Latitude = lat,
-                    Longitude = lng
+                    Longitude = lng,
+                    Source = SourceName,
+                    SearchConfidence = PlaceNames.RankConfidence(results.Count)
                 });
             }
 
@@ -84,21 +99,27 @@ namespace TravelApp.WebAPI.Services.PlaceSearch
                 // 좌표 유무가 아니라 IsPermanentlyClosed/LastConfirmedOperatingDate이기 때문이다.
                 var (lat, lng) = DestinationPoint(DefaultReferenceLatitude, DefaultReferenceLongitude, 0, 100);
 
-                return Task.FromResult<PlaceSearchResultDto?>(new PlaceSearchResultDto
+                results.Add(new PlaceSearchResultDto
                 {
                     PlaceId = $"mock:{entry.Name}:{lat:F5},{lng:F5}",
                     Name = entry.Name,
+                    CanonicalName = entry.Name,
                     Category = entry.Category,
                     Address = "이름 검색으로 확인된 장소 (mock 데이터, 폐업/오래된 정보)",
                     Latitude = lat,
                     Longitude = lng,
+                    Source = SourceName,
+                    SearchConfidence = PlaceNames.RankConfidence(results.Count),
+                    // 폐업은 Closed, 정보만 오래된 곳은 지금 영업 여부를 모르므로 Unknown.
+                    OperatingStatus = entry.IsPermanentlyClosed ? PlaceOperatingStatus.Closed : PlaceOperatingStatus.Unknown,
                     IsPermanentlyClosed = entry.IsPermanentlyClosed,
                     LastConfirmedOperatingDate = DateTime.UtcNow.AddMonths(-entry.MonthsSinceLastConfirmedOperating)
                 });
             }
 
-            // 어디에도 없는 이름 = mock 세계에는 존재하지 않는 장소 -> 못 찾음.
-            return Task.FromResult<PlaceSearchResultDto?>(null);
+            // 어디에도 없는 이름 = mock 세계에는 존재하지 않는 장소 -> 빈 목록(못 찾음).
+            return Task.FromResult<IReadOnlyList<PlaceSearchResultDto>>(
+                results.Take(INearbyPlaceSearchProvider.MaxNameSearchResults).ToList());
         }
 
         private static bool NameMatches(string candidateName, string normalizedQuery)
@@ -118,6 +139,27 @@ namespace TravelApp.WebAPI.Services.PlaceSearch
         {
             var results = new List<PlaceSearchResultDto>();
 
+            // 메뉴 키워드 검색: 업종 필터 없이, 메뉴가 같거나 이름에 검색어가 들어간 장소만.
+            if (!string.IsNullOrWhiteSpace(request.SearchText))
+            {
+                var matches = MenuTemplates
+                    .Where(t => t.Menu == request.SearchText || t.Name.Contains(request.SearchText, StringComparison.Ordinal))
+                    .Select(t => (t.Name, t.Category, t.BearingDeg, t.DistanceMeters))
+                    .Concat(Templates
+                        .Where(t => t.Name.Contains(request.SearchText, StringComparison.Ordinal))
+                        .Select(t => (t.Name, t.Category, t.BearingDeg, t.DistanceMeters)));
+
+                foreach (var (name, category, bearing, distance) in matches)
+                {
+                    if (distance <= request.RadiusMeters)
+                    {
+                        results.Add(ToNearbyResult(request, name, category, bearing, distance));
+                    }
+                }
+
+                return Task.FromResult(request.MaxResults is int limit ? results.Take(limit).ToList() : results);
+            }
+
             foreach (var template in Templates)
             {
                 if (template.DistanceMeters > request.RadiusMeters)
@@ -131,23 +173,46 @@ namespace TravelApp.WebAPI.Services.PlaceSearch
                     continue;
                 }
 
-                var (lat, lng) = DestinationPoint(
-                    request.Latitude, request.Longitude,
-                    template.BearingDeg, template.DistanceMeters);
-
-                results.Add(new PlaceSearchResultDto
+                if (!MatchesCategory(template.Category, request.Category))
                 {
-                    PlaceId = $"mock:{template.Name}:{lat:F5},{lng:F5}",
-                    Name = template.Name,
-                    Category = template.Category,
-                    Address = $"중심점에서 약 {template.DistanceMeters:F0}m 지점 (mock 데이터)",
-                    Latitude = lat,
-                    Longitude = lng
-                });
+                    continue;
+                }
+
+                results.Add(ToNearbyResult(request, template.Name, template.Category, template.BearingDeg, template.DistanceMeters));
             }
 
-            return Task.FromResult(results);
+            var limited = request.MaxResults is int max ? results.Take(max).ToList() : results;
+            return Task.FromResult(limited);
         }
+
+        private static PlaceSearchResultDto ToNearbyResult(
+            NearbyPlaceSearchRequest request, string name, string category, double bearingDeg, double distanceMeters)
+        {
+            var (lat, lng) = DestinationPoint(request.Latitude, request.Longitude, bearingDeg, distanceMeters);
+
+            return new PlaceSearchResultDto
+            {
+                PlaceId = $"mock:{name}:{lat:F5},{lng:F5}",
+                Name = name,
+                CanonicalName = name,
+                Category = category,
+                Address = $"중심점에서 약 {distanceMeters:F0}m 지점 (mock 데이터)",
+                Latitude = lat,
+                Longitude = lng,
+                DistanceMeters = distanceMeters,
+                Source = SourceName
+            };
+        }
+
+        private static bool MatchesCategory(string templateCategory, PlaceCategory category) => category switch
+        {
+            PlaceCategory.Other => true,
+            PlaceCategory.Restaurant => templateCategory == "음식점",
+            PlaceCategory.Cafe => templateCategory == "카페",
+            PlaceCategory.Bar => templateCategory == "주점",
+            PlaceCategory.Attraction or PlaceCategory.Shopping => templateCategory == "기타",
+            _ => false
+        };
 
         private static bool MatchesKeyword(string name, string category, string keyword)
         {

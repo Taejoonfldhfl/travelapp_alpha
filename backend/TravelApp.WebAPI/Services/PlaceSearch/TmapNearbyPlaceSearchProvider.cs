@@ -32,6 +32,12 @@ namespace TravelApp.WebAPI.Services.PlaceSearch
         private const double MinRadiusKm = 1;
         private const double MaxRadiusKm = 33;
 
+        // 주변 검색 결과 개수. 요청에 개수가 없으면 기존과 같은 20건, 요청하더라도 50건을 넘기지 않는다(쿼터/응답 크기).
+        private const int DefaultNearbyCount = 20;
+        private const int MaxNearbyCount = 50;
+
+        private const string SourceName = "Tmap";
+
         private readonly HttpClient _httpClient;
         private readonly string _appKey;
 
@@ -52,21 +58,33 @@ namespace TravelApp.WebAPI.Services.PlaceSearch
             NearbyPlaceSearchRequest request,
             CancellationToken cancellationToken = default)
         {
-            double radiusKm = Math.Clamp(request.RadiusMeters / 1000.0, MinRadiusKm, MaxRadiusKm);
+            // Tmap은 radius에 정수(km)만 받는다 — 1.5처럼 소수를 보내면 400(1100 "데이터 형식이 틀립니다")이 난다(실측 확인).
+            // 요청 반경보다 좁아지지 않도록 올림한다.
+            double radiusKm = Math.Clamp(Math.Ceiling(request.RadiusMeters / 1000.0), MinRadiusKm, MaxRadiusKm);
+
+            if (!string.IsNullOrWhiteSpace(request.SearchText))
+            {
+                return await SearchKeywordAroundAsync(request, radiusKm, cancellationToken);
+            }
 
             var query = HttpUtility.ParseQueryString(string.Empty);
             query["version"] = "1";
             query["centerLon"] = request.Longitude.ToString(CultureInfo.InvariantCulture);
             query["centerLat"] = request.Latitude.ToString(CultureInfo.InvariantCulture);
             query["radius"] = radiusKm.ToString(CultureInfo.InvariantCulture);
-            query["count"] = "20";
+            query["count"] = Math.Clamp(request.MaxResults ?? DefaultNearbyCount, 1, MaxNearbyCount).ToString(CultureInfo.InvariantCulture);
             query["page"] = "1";
             query["sort"] = "distance";
 
-            if (!string.IsNullOrWhiteSpace(request.Keyword))
+            // Tmap categories 파라미터는 한글 업종명을 세미콜론으로 구분해 받는다. 세부 업종(Keyword, 예: '한식')이
+            // 있으면 그걸, 없으면 카테고리에 대응하는 업종명을 쓴다(실측 확인: 음식점/카페/술집/관광명소/쇼핑/호텔/한식 동작).
+            string? categories = !string.IsNullOrWhiteSpace(request.Keyword)
+                ? request.Keyword
+                : ToTmapCategories(request.Category);
+
+            if (categories != null)
             {
-                // Tmap categories 파라미터는 한글 업종명을 세미콜론으로 구분해 받는다.
-                query["categories"] = request.Keyword;
+                query["categories"] = categories;
             }
 
             string url = $"{PoiAroundSearchEndpoint}?{query}";
@@ -75,21 +93,34 @@ namespace TravelApp.WebAPI.Services.PlaceSearch
             return ParsePois(body, place => true);
         }
 
-        public async Task<PlaceSearchResultDto?> SearchByNameAsync(
+        // 관련성 1순위가 찾던 곳이 아닌 경우가 실제로 있어서(예: "몽로" 검색 시 1순위 '카페로몽',
+        // 2순위 '몽로') 여러 건을 받는다. 순서는 Tmap이 준 관련성 순위 그대로 두고 재정렬하지 않는다.
+        // 알려진 한계: Tmap 응답에 휴관 정보가 없어(예: 이름에 '휴관중'이 붙은 국립한글박물관도 영업 중으로
+        // 취급됨) 휴관/폐업 판별에는 별도 데이터소스가 필요하다.
+        public async Task<IReadOnlyList<PlaceSearchResultDto>> SearchByNameAsync(
             string placeName,
             CancellationToken cancellationToken = default)
         {
             var query = HttpUtility.ParseQueryString(string.Empty);
             query["version"] = "1";
             query["searchKeyword"] = placeName;
-            query["count"] = "1";
+            query["count"] = INearbyPlaceSearchProvider.MaxNameSearchResults.ToString(CultureInfo.InvariantCulture);
             query["page"] = "1";
 
             string url = $"{PoiSearchEndpoint}?{query}";
             string body = await CallTmapAsync(url, cancellationToken);
 
-            var results = ParsePois(body, place => true);
-            return results.Count > 0 ? results[0] : null;
+            var results = ParsePois(body, place => true)
+                .Take(INearbyPlaceSearchProvider.MaxNameSearchResults)
+                .ToList();
+
+            // 관련성 순위가 곧 신뢰도다(1순위 1.0부터 순위마다 낮아짐). 순서는 바꾸지 않는다.
+            for (int i = 0; i < results.Count; i++)
+            {
+                results[i].SearchConfidence = PlaceNames.RankConfidence(i);
+            }
+
+            return results;
         }
 
         private async Task<string> CallTmapAsync(string url, CancellationToken cancellationToken)
@@ -108,6 +139,36 @@ namespace TravelApp.WebAPI.Services.PlaceSearch
 
             return body;
         }
+
+        // '파스타'처럼 업종명이 아닌 검색어는 주변 업종 검색(categories)으로 찾을 수 없어(0건), 통합검색(/tmap/pois)에
+        // 중심점·반경을 주고 거리순(searchtypCd=R)으로 찾는다. 실측: 강남역 반경 2km '파스타' -> 63건(파스타 가게 위주).
+        private async Task<List<PlaceSearchResultDto>> SearchKeywordAroundAsync(
+            NearbyPlaceSearchRequest request, double radiusKm, CancellationToken cancellationToken)
+        {
+            var query = HttpUtility.ParseQueryString(string.Empty);
+            query["version"] = "1";
+            query["searchKeyword"] = request.SearchText;
+            query["searchtypCd"] = "R";
+            query["centerLon"] = request.Longitude.ToString(CultureInfo.InvariantCulture);
+            query["centerLat"] = request.Latitude.ToString(CultureInfo.InvariantCulture);
+            query["radius"] = radiusKm.ToString(CultureInfo.InvariantCulture);
+            query["count"] = Math.Clamp(request.MaxResults ?? DefaultNearbyCount, 1, MaxNearbyCount).ToString(CultureInfo.InvariantCulture);
+            query["page"] = "1";
+
+            string body = await CallTmapAsync($"{PoiSearchEndpoint}?{query}", cancellationToken);
+            return ParsePois(body, place => true);
+        }
+
+        private static string? ToTmapCategories(PlaceCategory category) => category switch
+        {
+            PlaceCategory.Restaurant => "음식점",
+            PlaceCategory.Cafe => "카페",
+            PlaceCategory.Bar => "술집",
+            PlaceCategory.Attraction => "관광명소",
+            PlaceCategory.Shopping => "쇼핑",
+            PlaceCategory.Hotel => "호텔",
+            _ => null
+        };
 
         // searchPoiInfo.pois.poi[] 배열을 PlaceSearchResultDto 목록으로 매핑한다.
         // 문서가 예시를 준 통합검색(/tmap/pois) 응답 구조를 기준으로 하며, 주변 카테고리 검색도
@@ -176,11 +237,15 @@ namespace TravelApp.WebAPI.Services.PlaceSearch
                 {
                     PlaceId = $"tmap:{name}:{lat.Value:F5},{lon.Value:F5}",
                     Name = name,
+                    CanonicalName = PlaceNames.ToCanonicalName(name),
                     Category = category,
                     Address = address,
                     Latitude = lat.Value,
                     Longitude = lon.Value,
-                    // Tmap POI 응답에는 영업상태/폐업 정보가 없다 — 방금 검색으로 확인된 것으로 취급한다.
+                    Source = SourceName,
+                    // Tmap POI 응답에는 영업상태/폐업 정보가 없다 — 영업 중이라고 볼 근거가 없으므로 Unknown이다
+                    // (추천 후보에서 빼지는 않지만 영업 중으로 표현하지 않는다).
+                    OperatingStatus = PlaceOperatingStatus.Unknown,
                     IsPermanentlyClosed = false,
                     LastConfirmedOperatingDate = null
                 };

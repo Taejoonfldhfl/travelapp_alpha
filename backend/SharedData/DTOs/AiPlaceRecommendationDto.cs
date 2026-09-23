@@ -24,5 +24,8 @@ namespace SharedData.DTOs
         public double? Latitude { get; set; }
 
         public double? Longitude { get; set; }
+
+        // 검증에 쓴 후보의 영업 상태. 확인된 적 없으면 Unknown — 클라이언트는 이를 "영업 중"으로 표시하면 안 된다.
+        public PlaceOperatingStatus OperatingStatus { get; set; } = PlaceOperatingStatus.Unknown;
     }
 }

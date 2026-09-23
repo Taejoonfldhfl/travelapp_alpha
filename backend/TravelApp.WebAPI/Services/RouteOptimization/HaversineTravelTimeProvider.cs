@@ -43,7 +43,7 @@ namespace TravelApp.WebAPI.Services.RouteOptimization
             return Task.FromResult(matrix);
         }
 
-        private static double HaversineDistanceMeters(double lat1, double lon1, double lat2, double lon2)
+        internal static double HaversineDistanceMeters(double lat1, double lon1, double lat2, double lon2)
         {
             double dLat = ToRadians(lat2 - lat1);
             double dLon = ToRadians(lon2 - lon1);

@@ -60,23 +60,22 @@ namespace TravelApp.WebAPI.Tests
         {
             var provider = new MockNearbyPlaceSearchProvider();
 
-            var result = await provider.SearchByNameAsync("스타벅스 리저브점");
+            var result = Assert.Single(await provider.SearchByNameAsync("스타벅스 리저브점"));
 
-            Assert.NotNull(result);
-            Assert.Equal("스타벅스 리저브점", result!.Name);
+            Assert.Equal("스타벅스 리저브점", result.Name);
             Assert.NotEqual(0, result.Latitude);
             Assert.NotEqual(0, result.Longitude);
         }
 
         // 환각(존재하지 않는 이름)은 이름 검색으로도 걸러져야 한다.
         [Fact]
-        public async Task 환각_시나리오_존재하지_않는_이름은_null을_반환한다()
+        public async Task 환각_시나리오_존재하지_않는_이름은_빈_목록을_반환한다()
         {
             var provider = new MockNearbyPlaceSearchProvider();
 
             var result = await provider.SearchByNameAsync("이세상에없는가상의맛집12345");
 
-            Assert.Null(result);
+            Assert.Empty(result);
         }
 
         // 폐업 필터 시나리오: 이름 검색 자체는 성공하지만(=존재는 했던 곳), 폐업/오래된
@@ -86,10 +85,9 @@ namespace TravelApp.WebAPI.Tests
         {
             var provider = new MockNearbyPlaceSearchProvider();
 
-            var result = await provider.SearchByNameAsync("추억의 분식집");
+            var result = Assert.Single(await provider.SearchByNameAsync("추억의 분식집"));
 
-            Assert.NotNull(result);
-            Assert.True(result!.IsPermanentlyClosed);
+            Assert.True(result.IsPermanentlyClosed);
         }
 
         [Fact]
@@ -97,10 +95,9 @@ namespace TravelApp.WebAPI.Tests
         {
             var provider = new MockNearbyPlaceSearchProvider();
 
-            var result = await provider.SearchByNameAsync("오래된 카페");
+            var result = Assert.Single(await provider.SearchByNameAsync("오래된 카페"));
 
-            Assert.NotNull(result);
-            Assert.False(result!.IsPermanentlyClosed);
+            Assert.False(result.IsPermanentlyClosed);
             Assert.NotNull(result.LastConfirmedOperatingDate);
             Assert.True(result.LastConfirmedOperatingDate!.Value < DateTime.UtcNow.AddMonths(-3));
         }

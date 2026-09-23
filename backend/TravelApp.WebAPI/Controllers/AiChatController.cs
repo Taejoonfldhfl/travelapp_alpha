@@ -9,6 +9,7 @@ using TravelApp.WebAPI.Data;
 using TravelApp.WebAPI.Services;
 using TravelApp.WebAPI.Services.Llm;
 using TravelApp.WebAPI.Services.PlaceSearch;
+using TravelApp.WebAPI.Services.QueryAnalysis;
 
 namespace TravelApp.WebAPI.Controllers
 {
@@ -19,30 +20,28 @@ namespace TravelApp.WebAPI.Controllers
     {
         private const int MaxHistoryMessages = 16;
 
-        // "근처/주변" 등 사용자의 현재 위치를 기준으로 한 검색의 반경.
-        private const int NearbySearchRadiusMeters = 2000;
-
-        // 위치 문구가 없을 때, 이미 좌표가 있는 일정들의 무게중심을 기준으로 쓰는 반경.
-        // (여행지 전역을 아우를 수 있도록 근처 검색보다 넓게 잡는다.)
-        private const int TripAreaSearchRadiusMeters = 15000;
-
-        private static readonly JsonSerializerOptions ResponseJsonOptions = new()
-        {
-            PropertyNameCaseInsensitive = true
-        };
-
         private readonly ApplicationDbContext _context;
         private readonly AnthropicLlmClient _llmClient;
-        private readonly INearbyPlaceSearchProvider _placeSearchProvider;
+        private readonly PlaceCandidateSearchService _candidateSearch;
+        private readonly ILogger<AiChatController> _logger;
+
+        // 환각 검토용 로그. 수동 검토 테스트(AiChatHallucinationReview)가 이 EventId로 로그를 골라낸다.
+        public static readonly EventId QuestionLogEvent = new(1001, "AiChatQuestion");
+        public static readonly EventId RawReplyLogEvent = new(1002, "AiChatRawReply");
+        public static readonly EventId GroundingLogEvent = new(1003, "AiChatGrounding");
+        public static readonly EventId CandidateSearchLogEvent = new(1004, "AiChatCandidateSearch");
+        public static readonly EventId QueryAnalysisLogEvent = new(1005, "AiChatQueryAnalysis");
 
         public AiChatController(
             ApplicationDbContext context,
             AnthropicLlmClient llmClient,
-            INearbyPlaceSearchProvider placeSearchProvider)
+            INearbyPlaceSearchProvider placeSearchProvider,
+            ILogger<AiChatController> logger)
         {
             _context = context;
             _llmClient = llmClient;
-            _placeSearchProvider = placeSearchProvider;
+            _candidateSearch = new PlaceCandidateSearchService(placeSearchProvider, new LocationResolver(placeSearchProvider));
+            _logger = logger;
         }
 
         private async Task<bool> IsTripMember(int tripId, int userId)
@@ -96,6 +95,12 @@ namespace TravelApp.WebAPI.Controllers
         }
 
         // 2. 세션에 메시지를 보내고 장소 추천을 받는다.
+        //  1) 질문 분석(TravelQueryAnalyzer): 의도/위치/카테고리를 서버가 정한다.
+        //  2) 후보 검색(PlaceCandidateSearchService): 분석 결과로 검색 기준점을 정하고 그 주변 후보를 모은다.
+        //     "강남 맛집"이면 GPS가 와도 강남 기준이다. 기준점을 못 정했거나 후보가 없거나 검색 API가 실패하면
+        //     LLM을 부르지 않고 이유를 바로 답한다(부르면 장소명을 추측할 수 있으므로).
+        //  3) LLM은 후보 목록 중에서 고르고 설명만 한다.
+        //  4) 검증(GroundToCandidates): 후보 목록에 있는 장소(placeId 우선)만 남긴다.
         [HttpPost("sessions/{sessionId}/messages")]
         public async Task<ActionResult<AiChatResponseDto>> SendMessage(
             int tripId,
@@ -131,127 +136,123 @@ namespace TravelApp.WebAPI.Controllers
                 return Forbid();
             }
 
+            var askedAt = DateTime.UtcNow;
+            var analysis = TravelQueryAnalyzer.Analyze(request.Message);
+
+            _logger.LogInformation(QuestionLogEvent,
+                "AI 챗봇 질문 (Trip {TripId}, Session {SessionId}): {Question}", tripId, sessionId, request.Message);
+            _logger.LogInformation(QueryAnalysisLogEvent,
+                "질문 분석 (Session {SessionId}): 의도 {Intent}, 위치 {Location}, 카테고리 {Category}, 메뉴 {MenuKeyword}, 특정 장소 {SpecificPlace}, 상대 위치 {RelativeLocation}",
+                sessionId, analysis.Intent, analysis.Location ?? "-", analysis.Category, analysis.MenuKeyword ?? "-", analysis.SpecificPlace ?? "-", analysis.RelativeLocation);
+
             var schedules = await _context.Schedules
                 .Where(s => s.TripId == tripId)
                 .OrderBy(s => s.StartTime)
                 .ThenBy(s => s.Order)
                 .ToListAsync();
 
-            // 검색 중심점(GPS 또는 좌표가 있는 일정들의 무게중심)이 있으면 "현재 위치 근처 후보"를
-            // 미리 찾아 참고 목록으로 준다. 중심점이 없어도(둘 다 없어도) 더 이상 여기서 바로 막지
-            // 않는다 — 사용자가 메시지에서 특정 장소를 언급했다면 그 장소를 기준으로 한 추천은
-            // 현재 위치와 무관하게 가능해야 하고(아래에서 이름 검색으로 검증), 그런 언급도 없이
-            // '근처'만 물었는데 위치 정보가 전혀 없는 경우는 프롬프트가 빈 후보 목록을 보고
-            // LLM이 스스로 위치 정보가 필요하다고 안내하도록 한다.
-            var searchAnchor = ResolveSearchAnchor(request, schedules, out int searchRadiusMeters, out var anchorSource);
+            var search = analysis.Intent == TravelQueryIntent.NonRecommendation
+                ? new CandidateSearchResult(ChatSearchStatus.NotRecommendation, null, 0, [], null)
+                : await _candidateSearch.SearchAsync(
+                    analysis, request.CurrentLatitude, request.CurrentLongitude, schedules, askedAt, HttpContext.RequestAborted);
 
-            var candidatePlaces = searchAnchor != null
-                ? await _placeSearchProvider.SearchNearbyAsync(
-                    new NearbyPlaceSearchRequest(searchAnchor.Value.Latitude, searchAnchor.Value.Longitude, searchRadiusMeters, Keyword: null),
-                    HttpContext.RequestAborted)
-                : new List<PlaceSearchResultDto>();
+            _logger.LogInformation(CandidateSearchLogEvent,
+                "주변 후보 검색 (Session {SessionId}): 상태 {SearchStatus}, 중심점 {AnchorSource} '{AnchorLabel}', 반경 {RadiusMeters}m, 후보 {CandidateCount}건, 일정 중복 제외 {ExcludedAsScheduled}건",
+                sessionId, search.Status, search.Anchor?.Source.ToString() ?? "없음", search.Anchor?.Label ?? "-", search.RadiusMeters, search.Candidates.Count, search.ExcludedAsScheduled);
+
+            if (search.Status == ChatSearchStatus.SearchUnavailable)
+            {
+                _logger.LogWarning("장소 검색 API 호출 실패 (Session {SessionId}): {Error}", sessionId, search.ErrorDetail);
+            }
 
             var history = DeserializeHistory(session.MessagesJson);
             history.Add(new ChatHistoryMessage { Role = "user", Content = request.Message });
-            history = TrimToSlidingWindow(history);
 
-            var systemPrompt = AiChatPromptBuilder.BuildSystemPrompt(trip, schedules, candidatePlaces, anchorSource);
+            if (search.Status is not (ChatSearchStatus.Success or ChatSearchStatus.NotRecommendation))
+            {
+                var failure = new AiChatResponseDto
+                {
+                    ReplyText = search.UserMessage ?? string.Empty,
+                    SearchStatus = search.Status,
+                    SearchLocation = search.Anchor?.Label
+                };
+
+                // 대화 이력에도 LLM 응답과 같은 JSON 형태로 남겨, 다음 턴의 LLM이 형식을 헷갈리지 않게 한다.
+                await SaveHistoryAsync(session, history, JsonSerializer.Serialize(new { replyText = failure.ReplyText, recommendations = Array.Empty<object>() }));
+                return Ok(failure);
+            }
+
+            var systemPrompt = AiChatPromptBuilder.BuildSystemPrompt(new ChatPromptContext(
+                trip, schedules, request.Message, analysis, search.Anchor, search.RadiusMeters, search.Candidates, askedAt,
+                search.ExcludedAsScheduled));
 
             string rawReply;
             try
             {
-                rawReply = await _llmClient.SendAsync(systemPrompt, history, HttpContext.RequestAborted);
+                rawReply = await _llmClient.SendAsync(systemPrompt, TrimToSlidingWindow(history), HttpContext.RequestAborted);
             }
-            catch (InvalidOperationException ex)
+            catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException)
             {
+                _logger.LogWarning("LLM 호출 실패 (Session {SessionId}): {Error}", sessionId, ex.Message);
                 return StatusCode(502, $"AI 응답을 가져오지 못했습니다: {ex.Message}");
             }
 
-            var parsedResponse = TryParseRecommendation(rawReply);
+            _logger.LogInformation(RawReplyLogEvent, "LLM 원본 응답 (Session {SessionId}): {RawReply}", sessionId, rawReply);
 
-            if (parsedResponse == null)
+            var reply = AiChatReplyParser.TryParse(rawReply);
+
+            if (reply == null)
             {
                 return StatusCode(502, "AI 응답을 해석하지 못했습니다.");
             }
 
-            // 규칙 2 집행: 추천 하나하나를 실제 좌표로 검증하고, 검증되지 않으면(환각이거나
-            // 좌표를 확정할 수 없으면) 그 추천만 버린다. 또한 폐업이 확인됐거나 영업 확인 정보가
-            // 3개월보다 오래된 장소도(질문한 시점 기준, IsOperatingAsOf) 신뢰할 수 없으므로 버린다.
-            // 1) 먼저 "현재 위치 근처 후보 목록"과 이름이 일치하는지 본다(빠름, 이미 조회해둔 데이터).
-            // 2) 일치하지 않으면(=사용자가 특정 장소를 언급해 후보 목록 밖의 이름일 가능성) 장소
-            //    검색 API의 이름 검색으로 실제 존재 여부/좌표/영업 여부를 다시 확인한다 — 이 경로는
-            //    사용자의 현재 위치와 무관하게 동작하므로, GPS가 없어도 특정 장소 기준 추천이 가능하다.
-            int rawCount = parsedResponse.Recommendations.Count;
-            var groundedRecommendations = new List<AiPlaceRecommendationDto>();
-            var askedAt = DateTime.UtcNow;
-
-            foreach (var recommendation in parsedResponse.Recommendations)
+            var rawRecommendations = AiChatReplyParser.ToRecommendations(reply, trip.StartDate);
+            var response = new AiChatResponseDto
             {
-                if (PlaceRecommendationGrounder.TryMatch(recommendation.PlaceName, candidatePlaces, out var candidateMatch) &&
-                    PlaceRecommendationGrounder.IsOperatingAsOf(candidateMatch!, askedAt))
+                ReplyText = reply.ReplyText,
+                SearchStatus = search.Status,
+                SearchLocation = search.Anchor?.Label
+            };
+
+            if (analysis.Intent == TravelQueryIntent.NonRecommendation)
+            {
+                // 추천 요청이 아니었으므로 LLM이 장소를 넣었더라도 보여주지 않는다.
+                foreach (var dropped in rawRecommendations)
                 {
-                    recommendation.PlaceId = candidateMatch!.PlaceId;
-                    recommendation.Latitude = candidateMatch.Latitude;
-                    recommendation.Longitude = candidateMatch.Longitude;
-                    groundedRecommendations.Add(recommendation);
-                    continue;
+                    _logger.LogInformation(GroundingLogEvent, "추천 {PlaceName}: {Verdict} ({Reason})",
+                        dropped.PlaceName, "제외", "장소 추천 요청이 아님");
+                }
+            }
+            else
+            {
+                var outcomes = PlaceRecommendationGrounder.GroundToCandidates(rawRecommendations, search.Candidates, askedAt);
+
+                foreach (var outcome in outcomes)
+                {
+                    _logger.LogInformation(GroundingLogEvent,
+                        "추천 {PlaceName}: {Verdict} ({Reason})",
+                        outcome.Recommendation.PlaceName, outcome.Accepted ? "채택" : "제외", outcome.Reason);
                 }
 
-                var nameMatch = await _placeSearchProvider.SearchByNameAsync(recommendation.PlaceName, HttpContext.RequestAborted);
+                response.Recommendations = outcomes.Where(o => o.Accepted).Select(o => o.Recommendation).ToList();
 
-                if (nameMatch != null && PlaceRecommendationGrounder.IsOperatingAsOf(nameMatch, askedAt))
+                // LLM이 추천을 냈지만 하나도 검증되지 않았다 — LLM 실패(502)와 구분해 검증 실패로 알린다.
+                if (rawRecommendations.Count > 0 && response.Recommendations.Count == 0)
                 {
-                    recommendation.PlaceId = nameMatch.PlaceId;
-                    recommendation.Latitude = nameMatch.Latitude;
-                    recommendation.Longitude = nameMatch.Longitude;
-                    groundedRecommendations.Add(recommendation);
+                    response.SearchStatus = ChatSearchStatus.GroundingFailed;
+                    response.ReplyText += " (추천한 장소를 이번 검색 결과에서 확인하지 못해 보여드리지 않았어요.)";
                 }
-                // 못 찾았거나(환각), 찾았지만 폐업/오래된 정보라면 버리고 다른 추천만 보여준다.
             }
 
-            parsedResponse.Recommendations = groundedRecommendations;
-
-            if (rawCount > 0 && parsedResponse.Recommendations.Count == 0)
-            {
-                parsedResponse.ReplyText +=
-                    " (죄송해요, 좌표가 확실한 장소를 찾지 못해 추천을 보여드리지 못했어요. 더 구체적으로 말씀해주시겠어요?)";
-            }
-
-            history.Add(new ChatHistoryMessage { Role = "assistant", Content = rawReply });
-            history = TrimToSlidingWindow(history);
-
-            session.MessagesJson = JsonSerializer.Serialize(history);
-            await _context.SaveChangesAsync();
-
-            return Ok(parsedResponse);
+            await SaveHistoryAsync(session, history, rawReply);
+            return Ok(response);
         }
 
-        // GPS 좌표가 있으면 그 좌표를(좁은 반경), 없으면 좌표가 있는 기존 일정들의 무게중심을
-        // (넓은 반경) 검색 중심점으로 쓴다. 둘 다 없으면 null.
-        // GPS는 메시지에 "근처" 같은 표현이 없어도(=사용자가 특정 장소를 언급하지 않아도)
-        // 항상 우선한다 — 이렇게 해야 "근처"라고 말하지 않아도 현재 위치 기준 추천이 된다.
-        private static (double Latitude, double Longitude)? ResolveSearchAnchor(
-            AiChatRequestDto request, List<Schedule> schedules, out int searchRadiusMeters, out SearchAnchorSource anchorSource)
+        private async Task SaveHistoryAsync(ChatSession session, List<ChatHistoryMessage> history, string assistantContent)
         {
-            if (request.CurrentLatitude.HasValue && request.CurrentLongitude.HasValue)
-            {
-                searchRadiusMeters = NearbySearchRadiusMeters;
-                anchorSource = SearchAnchorSource.CurrentLocation;
-                return (request.CurrentLatitude.Value, request.CurrentLongitude.Value);
-            }
-
-            var located = schedules.Where(s => s.Latitude.HasValue && s.Longitude.HasValue).ToList();
-
-            if (located.Count > 0)
-            {
-                searchRadiusMeters = TripAreaSearchRadiusMeters;
-                anchorSource = SearchAnchorSource.TripArea;
-                return (located.Average(s => s.Latitude!.Value), located.Average(s => s.Longitude!.Value));
-            }
-
-            searchRadiusMeters = 0;
-            anchorSource = SearchAnchorSource.TripArea;
-            return null;
+            history.Add(new ChatHistoryMessage { Role = "assistant", Content = assistantContent });
+            session.MessagesJson = JsonSerializer.Serialize(TrimToSlidingWindow(history));
+            await _context.SaveChangesAsync();
         }
 
         private static List<ChatHistoryMessage> DeserializeHistory(string messagesJson)
@@ -276,41 +277,6 @@ namespace TravelApp.WebAPI.Controllers
             return history
                 .Skip(history.Count - MaxHistoryMessages)
                 .ToList();
-        }
-
-        private static AiChatResponseDto? TryParseRecommendation(string rawReply)
-        {
-            try
-            {
-                return JsonSerializer.Deserialize<AiChatResponseDto>(ExtractJson(rawReply), ResponseJsonOptions);
-            }
-            catch (JsonException)
-            {
-                return null;
-            }
-        }
-
-        // 모델이 지시를 어기고 코드블록으로 감싸는 경우를 대비한 방어적 처리.
-        private static string ExtractJson(string rawReply)
-        {
-            var text = rawReply.Trim();
-
-            if (text.StartsWith("```"))
-            {
-                var firstNewline = text.IndexOf('\n');
-                if (firstNewline >= 0)
-                {
-                    text = text[(firstNewline + 1)..];
-                }
-
-                var closingFence = text.LastIndexOf("```", StringComparison.Ordinal);
-                if (closingFence >= 0)
-                {
-                    text = text[..closingFence];
-                }
-            }
-
-            return text.Trim();
         }
     }
 }

@@ -39,6 +39,10 @@ namespace SharedData.Models
         public int Priority { get; set; } = 0;
         public bool IsEssential { get; set; } = true;
 
+        // 호텔 체크인 일정이면 true. 경로 최적화에서 이 일정의 StartTime을 "그 이전에는 방문할 수 없는
+        // 앵커 시각"으로 취급해, 체크인 이후 시간대에 방문하도록 방문 순서를 조정한다.
+        public bool IsHotelCheckIn { get; set; } = false;
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 }

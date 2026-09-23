@@ -20,5 +20,8 @@ namespace SharedData.DTOs
 
         // 이전 방문지에서 여기까지 걸리는 이동시간(초). 첫 방문지는 0.
         public double TravelTimeFromPreviousSeconds { get; set; }
+
+        // 호텔 체크인 앵커 지점이면 true (프런트에서 강조 표시용).
+        public bool IsHotelCheckIn { get; set; }
     }
 }

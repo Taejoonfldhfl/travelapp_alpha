@@ -36,5 +36,8 @@ namespace SharedData.DTOs
         public int Priority { get; set; } = 0;
 
         public bool IsEssential { get; set; } = true;
+
+        // true면 경로 최적화 시 StartTime을 체크인 앵커 시각으로 취급한다.
+        public bool IsHotelCheckIn { get; set; } = false;
     }
 }

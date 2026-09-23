@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using SharedData.DTOs;
@@ -62,6 +62,7 @@ namespace TravelApp.WebAPI.Controllers
                 return BadRequest("일정은 여행 기간 내에 등록해야 합니다.");
             }
 
+
             var schedule = new Schedule
             {
                 TripId = tripId,
@@ -74,7 +75,8 @@ namespace TravelApp.WebAPI.Controllers
                 Latitude = request.Latitude,
                 Longitude = request.Longitude,
                 Priority = request.Priority,
-                IsEssential = request.IsEssential
+                IsEssential = request.IsEssential,
+                IsHotelCheckIn = request.IsHotelCheckIn
             };
 
             _context.Schedules.Add(schedule);
@@ -118,6 +120,7 @@ namespace TravelApp.WebAPI.Controllers
                     Longitude = s.Longitude,
                     Priority = s.Priority,
                     IsEssential = s.IsEssential,
+                    IsHotelCheckIn = s.IsHotelCheckIn,
                     CreatedAt = s.CreatedAt
                 })
                 .ToListAsync();
@@ -197,6 +200,7 @@ namespace TravelApp.WebAPI.Controllers
                 return NotFound("일정을 찾을 수 없습니다.");
             }
 
+
             schedule.Title = request.Title;
             schedule.PlaceName = request.PlaceName;
             schedule.Description = request.Description;
@@ -207,6 +211,7 @@ namespace TravelApp.WebAPI.Controllers
             schedule.Longitude = request.Longitude;
             schedule.Priority = request.Priority;
             schedule.IsEssential = request.IsEssential;
+            schedule.IsHotelCheckIn = request.IsHotelCheckIn;
 
             await _context.SaveChangesAsync();
 
@@ -263,6 +268,7 @@ namespace TravelApp.WebAPI.Controllers
                 Longitude = schedule.Longitude,
                 Priority = schedule.Priority,
                 IsEssential = schedule.IsEssential,
+                IsHotelCheckIn = schedule.IsHotelCheckIn,
                 CreatedAt = schedule.CreatedAt
             };
         }

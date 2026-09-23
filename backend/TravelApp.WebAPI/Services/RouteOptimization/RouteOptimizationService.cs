@@ -60,7 +60,8 @@ namespace TravelApp.WebAPI.Services.RouteOptimization
                     TotalTravelTimeSeconds = 0,
                     SolverUsed = "None",
                     Applied = false,
-                    SkippedSchedulesWithoutCoordinates = skipped
+                    SkippedSchedulesWithoutCoordinates = skipped,
+                    AnchorAdjusted = false
                 };
             }
 
@@ -76,12 +77,32 @@ namespace TravelApp.WebAPI.Services.RouteOptimization
 
             (TspSolution solution, string solverUsed) = Solve(travelTimeSeconds);
 
-            var orderedSchedules = solution.Order.Select(idx => withCoordinates[idx]).ToList();
+            // 호텔 체크인처럼 "이 시각 이전에는 방문할 수 없는" 앵커가 있으면, 순수 이동시간
+            // 최적해 위에 후처리로 반영해 체크인 이후 시간대에 방문하도록 순서를 조정한다.
+            var anchorTimesByIndex = withCoordinates
+                .Select((s, idx) => (Schedule: s, Index: idx))
+                .Where(x => x.Schedule.IsHotelCheckIn)
+                .ToDictionary(x => x.Index, x => x.Schedule.StartTime);
+
+            int[] finalOrder = solution.Order;
+            double totalTravelTimeSeconds = solution.TotalTravelTimeSeconds;
+            bool anchorAdjusted = false;
+
+            if (anchorTimesByIndex.Count > 0)
+            {
+                var anchorResult = AnchorConstraintApplier.Apply(
+                    solution.Order, travelTimeSeconds, departureTime, anchorTimesByIndex);
+                finalOrder = anchorResult.Order;
+                totalTravelTimeSeconds = anchorResult.TotalTravelTimeSeconds;
+                anchorAdjusted = anchorResult.Adjusted;
+            }
+
+            var orderedSchedules = finalOrder.Select(idx => withCoordinates[idx]).ToList();
 
             var stops = new List<RouteOptimizationStopDto>();
             for (int i = 0; i < orderedSchedules.Count; i++)
             {
-                double legSeconds = i == 0 ? 0 : travelTimeSeconds[solution.Order[i - 1], solution.Order[i]];
+                double legSeconds = i == 0 ? 0 : travelTimeSeconds[finalOrder[i - 1], finalOrder[i]];
                 stops.Add(ToStop(orderedSchedules[i], i, legSeconds));
             }
 
@@ -98,10 +119,11 @@ namespace TravelApp.WebAPI.Services.RouteOptimization
             {
                 Date = date.Date,
                 Stops = stops,
-                TotalTravelTimeSeconds = solution.TotalTravelTimeSeconds,
+                TotalTravelTimeSeconds = totalTravelTimeSeconds,
                 SolverUsed = solverUsed,
                 Applied = apply,
-                SkippedSchedulesWithoutCoordinates = skipped
+                SkippedSchedulesWithoutCoordinates = skipped,
+                AnchorAdjusted = anchorAdjusted
             };
         }
 
@@ -133,7 +155,8 @@ namespace TravelApp.WebAPI.Services.RouteOptimization
                 Latitude = schedule.Latitude!.Value,
                 Longitude = schedule.Longitude!.Value,
                 VisitOrder = visitOrder,
-                TravelTimeFromPreviousSeconds = legSeconds
+                TravelTimeFromPreviousSeconds = legSeconds,
+                IsHotelCheckIn = schedule.IsHotelCheckIn
             };
         }
     }

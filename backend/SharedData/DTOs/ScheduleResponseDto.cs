@@ -30,6 +30,8 @@ namespace SharedData.DTOs
 
         public bool IsEssential { get; set; }
 
+        public bool IsHotelCheckIn { get; set; }
+
         public DateTime CreatedAt { get; set; }
     }
 }

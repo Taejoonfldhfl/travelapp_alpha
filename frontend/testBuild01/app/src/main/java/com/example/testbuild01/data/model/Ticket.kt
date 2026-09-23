@@ -1,5 +1,6 @@
 package com.example.testbuild01.data.model
 
+import com.example.testbuild01.data.local.HotelDetail
 import com.example.testbuild01.data.local.TicketType
 
 /** 복호화된 상세 정보를 포함한 티켓. 화면과 알림은 [com.example.testbuild01.data.local.TicketEntity] 대신 이 모델을 쓴다. */
@@ -13,5 +14,12 @@ data class Ticket(
     /** 스캔한 원본 값. 수동 입력이거나 복호화에 실패하면 빈 문자열 */
     val barcodeValue: String,
     val barcodeFormat: String,
-    val confirmationNumber: String?
-)
+    val confirmationNumber: String?,
+    /** type == HOTEL일 때만 채워진다. */
+    val hotel: HotelDetail? = null,
+    /** 사용자가 "일정에 반영"한 경우에만 채워진다. [TicketEntity.linkedScheduleId] 참고 */
+    val linkedScheduleId: Int? = null,
+    val linkedTripId: Int? = null
+) {
+    val isLinkedToSchedule: Boolean get() = linkedScheduleId != null && linkedTripId != null
+}

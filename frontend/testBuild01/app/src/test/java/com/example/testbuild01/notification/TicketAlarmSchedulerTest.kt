@@ -4,6 +4,7 @@ import com.example.testbuild01.data.local.TicketEntity
 import com.example.testbuild01.data.local.TicketType
 import com.example.testbuild01.notification.TicketAlarmScheduler.Result
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -11,18 +12,24 @@ import org.junit.Test
 class TicketAlarmSchedulerTest {
 
     private class FakeBackend(var exactAllowed: Boolean = true) : AlarmBackend {
-        val exact = mutableMapOf<Long, Long>()
-        val fallback = mutableMapOf<Long, Long>()
-        val cancelled = mutableListOf<Long>()
+        val exact = mutableMapOf<Pair<Long, AlarmSlot>, Long>()
+        val fallback = mutableMapOf<Pair<Long, AlarmSlot>, Long>()
 
         override fun canScheduleExact() = exactAllowed
-        override fun scheduleExact(ticketId: Long, triggerAtMillis: Long) { exact[ticketId] = triggerAtMillis }
-        override fun scheduleFallback(ticketId: Long, triggerAtMillis: Long) { fallback[ticketId] = triggerAtMillis }
-        override fun cancel(ticketId: Long) {
-            cancelled += ticketId
-            exact.remove(ticketId)
-            fallback.remove(ticketId)
+        override fun scheduleExact(ticketId: Long, slot: AlarmSlot, triggerAtMillis: Long) {
+            exact[ticketId to slot] = triggerAtMillis
         }
+        override fun scheduleFallback(ticketId: Long, slot: AlarmSlot, triggerAtMillis: Long) {
+            fallback[ticketId to slot] = triggerAtMillis
+        }
+        override fun cancel(ticketId: Long, slot: AlarmSlot) {
+            exact.remove(ticketId to slot)
+            fallback.remove(ticketId to slot)
+        }
+
+        fun exactFor(ticketId: Long, slot: AlarmSlot = AlarmSlot.PRIMARY) = exact[ticketId to slot]
+        fun hasAnyFor(ticketId: Long) =
+            exact.keys.any { it.first == ticketId } || fallback.keys.any { it.first == ticketId }
     }
 
     private val minute = 60 * 1000L
@@ -31,9 +38,9 @@ class TicketAlarmSchedulerTest {
     private lateinit var backend: FakeBackend
     private lateinit var scheduler: TicketAlarmScheduler
 
-    private fun ticket(id: Long, startsAt: Long) = TicketEntity(
+    private fun ticket(id: Long, startsAt: Long, secondaryAlertAt: Long? = null) = TicketEntity(
         id = id,
-        type = TicketType.FLIGHT,
+        type = if (secondaryAlertAt != null) TicketType.HOTEL else TicketType.FLIGHT,
         title = "테스트",
         startDateTime = startsAt,
         locationFrom = "ICN",
@@ -41,7 +48,8 @@ class TicketAlarmSchedulerTest {
         barcodeValue = "",
         barcodeFormat = "",
         confirmationNumber = null,
-        encryptedDetailsJson = ""
+        encryptedDetailsJson = "",
+        secondaryAlertAt = secondaryAlertAt
     )
 
     @Before
@@ -55,7 +63,10 @@ class TicketAlarmSchedulerTest {
         val result = scheduler.schedule(ticket(1, now + 5 * hour))
 
         assertEquals(Result.EXACT, result)
-        assertEquals(now + 5 * hour - TicketAlertConfig.LEAD_TIME_MINUTES * minute, backend.exact[1L])
+        assertEquals(
+            now + 5 * hour - TicketAlertConfig.LEAD_TIME_MINUTES * minute,
+            backend.exactFor(1L)
+        )
     }
 
     @Test
@@ -66,7 +77,7 @@ class TicketAlarmSchedulerTest {
 
         assertEquals(Result.FALLBACK, result)
         assertTrue(backend.exact.isEmpty())
-        assertTrue(backend.fallback.containsKey(1L))
+        assertTrue(backend.fallback.containsKey(1L to AlarmSlot.PRIMARY))
     }
 
     @Test
@@ -94,7 +105,10 @@ class TicketAlarmSchedulerTest {
         scheduler.reschedule(ticket(1, now + 8 * hour))
 
         assertEquals(1, backend.exact.size)
-        assertEquals(now + 8 * hour - TicketAlertConfig.LEAD_TIME_MINUTES * minute, backend.exact[1L])
+        assertEquals(
+            now + 8 * hour - TicketAlertConfig.LEAD_TIME_MINUTES * minute,
+            backend.exactFor(1L)
+        )
     }
 
     @Test
@@ -114,7 +128,7 @@ class TicketAlarmSchedulerTest {
 
         scheduler.cancel(1)
 
-        assertEquals(setOf(2L), backend.exact.keys)
+        assertEquals(setOf(2L to AlarmSlot.PRIMARY), backend.exact.keys)
     }
 
     @Test
@@ -126,6 +140,53 @@ class TicketAlarmSchedulerTest {
         scheduler.schedule(ticket(1, now + 5 * hour))
 
         assertTrue(backend.fallback.isEmpty())
-        assertTrue(backend.exact.containsKey(1L))
+        assertTrue(backend.exact.containsKey(1L to AlarmSlot.PRIMARY))
+    }
+
+    // --- 호텔: 체크인 임박 + 무료취소 마감, 두 알림 ---
+
+    @Test
+    fun schedule_hotel_schedulesBothCheckInAndCancellationAlarms() {
+        val result = scheduler.schedule(
+            ticket(1, startsAt = now + 30 * hour, secondaryAlertAt = now + 5 * hour)
+        )
+
+        assertEquals(Result.EXACT, result)
+        assertEquals(
+            now + 30 * hour - TicketAlertConfig.LEAD_TIME_MINUTES * minute,
+            backend.exactFor(1L, AlarmSlot.PRIMARY)
+        )
+        assertEquals(
+            now + 5 * hour - TicketAlertConfig.LEAD_TIME_MINUTES * minute,
+            backend.exactFor(1L, AlarmSlot.SECONDARY)
+        )
+    }
+
+    @Test
+    fun schedule_hotel_withoutFreeCancellationDeadline_skipsSecondaryAlarm() {
+        scheduler.schedule(ticket(1, startsAt = now + 30 * hour, secondaryAlertAt = null))
+
+        assertEquals(1, backend.exact.size)
+        assertNull(backend.exactFor(1L, AlarmSlot.SECONDARY))
+    }
+
+    @Test
+    fun cancel_hotel_removesBothAlarms() {
+        scheduler.schedule(ticket(1, startsAt = now + 30 * hour, secondaryAlertAt = now + 5 * hour))
+
+        scheduler.cancel(1)
+
+        assertTrue(backend.hasAnyFor(1L).not())
+    }
+
+    @Test
+    fun reschedule_hotel_dropsSecondaryAlarm_whenDeadlineRemoved() {
+        scheduler.schedule(ticket(1, startsAt = now + 30 * hour, secondaryAlertAt = now + 5 * hour))
+        assertEquals(now + 5 * hour - TicketAlertConfig.LEAD_TIME_MINUTES * minute, backend.exactFor(1L, AlarmSlot.SECONDARY))
+
+        scheduler.reschedule(ticket(1, startsAt = now + 30 * hour, secondaryAlertAt = null))
+
+        assertNull(backend.exactFor(1L, AlarmSlot.SECONDARY))
+        assertTrue(backend.exact.containsKey(1L to AlarmSlot.PRIMARY))
     }
 }

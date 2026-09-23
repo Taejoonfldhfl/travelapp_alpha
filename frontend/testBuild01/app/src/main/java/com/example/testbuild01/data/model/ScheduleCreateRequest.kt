@@ -8,5 +8,6 @@ data class ScheduleCreateRequest(
     val endTime: String,
     val order: Int,
     val latitude: Double? = null,
-    val longitude: Double? = null
+    val longitude: Double? = null,
+    val isHotelCheckIn: Boolean = false
 )

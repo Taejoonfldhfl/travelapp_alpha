@@ -17,11 +17,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -40,8 +40,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -50,7 +52,10 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
+import com.example.testbuild01.data.local.TicketType
 import com.example.testbuild01.data.model.Ticket
+import com.example.testbuild01.ui.hotel.HotelLocationSection
+import com.example.testbuild01.ui.hotel.HotelScheduleLinkDialogHost
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,13 +63,14 @@ fun TicketListScreen(
     viewModel: TicketViewModel,
     highlightId: Long,
     onAddTicket: () -> Unit,
+    onAddHotel: () -> Unit = {},
+    onSearchHotels: () -> Unit = {},
     onEditTicket: (Ticket) -> Unit,
     onBack: () -> Unit
 ) {
     val tickets by viewModel.tickets.collectAsState()
 
     var viewingId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var deleting by remember { mutableStateOf<Ticket?>(null) }
     val viewing = tickets.firstOrNull { it.id == viewingId }
 
     // 알림 딥링크로 들어오면 해당 티켓의 코드를 바로 연다. 목록이 로드된 뒤 한 번만 처리한다.
@@ -80,11 +86,15 @@ fun TicketListScreen(
         topBar = {
             CenterAlignedTopAppBar(
                 title = { Text("내 티켓") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("뒤로") } }
+                navigationIcon = { TextButton(onClick = onBack) { Text("뒤로") } },
+                actions = { TextButton(onClick = onSearchHotels) { Text("호텔 검색") } }
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = onAddTicket) { Text("+") }
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ExtendedFloatingActionButton(onClick = onAddHotel, text = { Text("호텔 등록") }, icon = { Text("+") })
+                FloatingActionButton(onClick = onAddTicket) { Text("+") }
+            }
         }
     ) { paddingValues ->
         Column(
@@ -110,7 +120,11 @@ fun TicketListScreen(
                             ticket = ticket,
                             onClick = { viewingId = ticket.id },
                             onEdit = { onEditTicket(ticket) },
-                            onDelete = { deleting = ticket }
+                            onDelete = {
+                                if (viewingId == ticket.id) viewingId = null
+                                viewModel.requestDelete(ticket)
+                            },
+                            onScheduleLink = { viewModel.openTripPicker(ticket.id, askFirst = false) }
                         )
                     }
                 }
@@ -118,23 +132,11 @@ fun TicketListScreen(
         }
     }
 
-    viewing?.let { TicketCodeDialog(ticket = it, onDismiss = { viewingId = null }) }
+    // 호텔은 카드 자체에서 확인번호/QR을 보여주므로 풀스크린 다이얼로그 자동 오픈 대상에서 제외한다.
+    viewing?.takeIf { it.type != TicketType.HOTEL }?.let { TicketCodeDialog(ticket = it, onDismiss = { viewingId = null }) }
 
-    deleting?.let { ticket ->
-        AlertDialog(
-            onDismissRequest = { deleting = null },
-            title = { Text("티켓 삭제") },
-            text = { Text("\"${ticket.title}\" 티켓과 예약된 알림을 삭제할까요?") },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.delete(ticket)
-                    if (viewingId == ticket.id) viewingId = null
-                    deleting = null
-                }) { Text("삭제") }
-            },
-            dismissButton = { TextButton(onClick = { deleting = null }) { Text("취소") } }
-        )
-    }
+    // 삭제 확인, 호텔 등록 직후 "일정에 반영할까요?", 수정 후 일정 갱신 확인 등을 모두 여기서 띄운다.
+    HotelScheduleLinkDialogHost(viewModel)
 }
 
 @Composable
@@ -142,25 +144,80 @@ private fun TicketCard(
     ticket: Ticket,
     onClick: () -> Unit,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onScheduleLink: () -> Unit
 ) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-    ) {
+    // 호텔은 탭→바코드 풀스크린이 아니라 카드 안에 확인번호를 바로 보여준다.
+    val cardModifier = Modifier.fillMaxWidth().let {
+        if (ticket.type == TicketType.HOTEL) it else it.clickable(onClick = onClick)
+    }
+    Card(modifier = cardModifier) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = "${ticket.type.label()} · ${formatDateTime(ticket.startDateTime)}",
-                style = MaterialTheme.typography.labelLarge
-            )
-            Text(text = ticket.title, style = MaterialTheme.typography.titleLarge)
-            Text(text = "${ticket.locationFrom} → ${ticket.locationTo}")
+            if (ticket.type == TicketType.HOTEL) {
+                HotelCardBody(ticket)
+            } else {
+                Text(
+                    text = "${ticket.type.label()} · ${formatDateTime(ticket.startDateTime)}",
+                    style = MaterialTheme.typography.labelLarge
+                )
+                Text(text = ticket.title, style = MaterialTheme.typography.titleLarge)
+                Text(text = "${ticket.locationFrom} → ${ticket.locationTo}")
+            }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                if (ticket.type == TicketType.HOTEL) {
+                    TextButton(onClick = onScheduleLink) {
+                        Text(if (ticket.isLinkedToSchedule) "일정 연결 관리" else "일정에 반영")
+                    }
+                }
                 TextButton(onClick = onEdit) { Text("수정") }
                 TextButton(onClick = onDelete) { Text("삭제") }
             }
         }
+    }
+}
+
+/** 확인번호를 크게 표시 + 복사 버튼이 기본이고, barcodeValue가 있을 때만(부킹닷컴류) QR 보기를 노출한다. */
+@Composable
+private fun HotelCardBody(ticket: Ticket) {
+    val clipboardManager = LocalClipboardManager.current
+    var showBarcode by remember { mutableStateOf(false) }
+
+    Text(
+        text = "호텔 · ${formatDateTime(ticket.startDateTime)} 체크인",
+        style = MaterialTheme.typography.labelLarge
+    )
+    Text(text = ticket.title, style = MaterialTheme.typography.titleLarge)
+    Text(text = ticket.locationFrom)
+    if (ticket.isLinkedToSchedule) {
+        Text(
+            text = "📅 여행 일정에 연결됨",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary
+        )
+    }
+
+    val confirmationNumber = ticket.confirmationNumber
+    if (!confirmationNumber.isNullOrBlank()) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = "확인번호 $confirmationNumber",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            TextButton(onClick = { clipboardManager.setText(AnnotatedString(confirmationNumber)) }) {
+                Text("복사")
+            }
+        }
+    }
+
+    if (ticket.barcodeValue.isNotBlank()) {
+        TextButton(onClick = { showBarcode = true }) { Text("QR/바코드 보기") }
+    }
+
+    ticket.hotel?.let { HotelLocationSection(it) }
+
+    if (showBarcode) {
+        TicketCodeDialog(ticket = ticket, onDismiss = { showBarcode = false })
     }
 }
 

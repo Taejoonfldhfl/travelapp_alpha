@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -331,6 +332,12 @@ fun ScheduleScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text("예상 총 이동시간: ${formatDurationMinutes(preview.totalTravelTimeSeconds)}")
+                        if (preview.anchorAdjusted) {
+                            Text(
+                                "호텔 체크인 시각에 맞춰 방문 순서가 조정되었습니다.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
                         Text("확인을 누르면 이 순서로 확정됩니다.")
                     }
                 }
@@ -346,7 +353,8 @@ fun ScheduleScreen(
                         Card(modifier = Modifier.fillMaxWidth()) {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Text(
-                                    text = "${stop.visitOrder + 1}. ${stop.title}",
+                                    text = "${stop.visitOrder + 1}. ${stop.title}" +
+                                        if (stop.isHotelCheckIn) " (호텔 체크인)" else "",
                                     style = MaterialTheme.typography.titleMedium
                                 )
 
@@ -474,7 +482,7 @@ fun ScheduleItem(
         ) {
 
             Text(
-                text = schedule.title,
+                text = schedule.title + if (schedule.isHotelCheckIn) " (호텔 체크인)" else "",
                 style = MaterialTheme.typography.titleLarge
             )
 
@@ -580,6 +588,7 @@ fun AddScheduleDialog(
 
     var latitude by remember { mutableStateOf("") }
     var longitude by remember { mutableStateOf("") }
+    var isHotelCheckIn by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -687,6 +696,18 @@ fun AddScheduleDialog(
                     },
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                Spacer(
+                    modifier = Modifier.height(8.dp)
+                )
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = isHotelCheckIn,
+                        onCheckedChange = { isHotelCheckIn = it }
+                    )
+                    Text("이 일정은 호텔 체크인이에요 (경로 최적화 시 이 시각 이후로만 방문)")
+                }
             }
         },
 
@@ -719,7 +740,8 @@ fun AddScheduleDialog(
                             endTime = endTime,
                             order = 0,
                             latitude = latitude.toDoubleOrNull(),
-                            longitude = longitude.toDoubleOrNull()
+                            longitude = longitude.toDoubleOrNull(),
+                            isHotelCheckIn = isHotelCheckIn
                         )
 
                     RetrofitClient.instance

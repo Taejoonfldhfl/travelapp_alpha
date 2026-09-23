@@ -28,7 +28,15 @@ import com.example.testbuild01.ui.theme.TestBuild01Theme
 import com.example.testbuild01.ui.CreateTripScreen
 import com.example.testbuild01.ui.TripMemberScreen
 import com.example.testbuild01.ui.ScheduleScreen
+import com.example.testbuild01.data.local.TicketType
+import com.example.testbuild01.data.repository.TicketDraft
 import com.example.testbuild01.ui.aichat.AiChatScreen
+import com.example.testbuild01.ui.hotel.HotelConfirmationScannerScreen
+import com.example.testbuild01.ui.hotel.HotelDetailReviewScreen
+import com.example.testbuild01.ui.hotel.HotelManualEntryScreen
+import com.example.testbuild01.ui.hotel.HotelSearchScreen
+import com.example.testbuild01.data.hotel.HotelOcrCandidate
+import com.example.testbuild01.data.local.HotelDetail
 import com.example.testbuild01.ui.ticket.TicketListScreen
 import com.example.testbuild01.ui.ticket.TicketManualEntryScreen
 import com.example.testbuild01.ui.ticket.TicketScanScreen
@@ -79,7 +87,8 @@ fun TravelApp(pendingTicketId: MutableState<Long?> = mutableStateOf(null)) {
     val navController = rememberNavController()
     // 스캔 → 수동 입력 → 목록이 상태를 공유하도록 Activity 범위로 둔다.
     val ticketViewModel: TicketViewModel = viewModel(
-        viewModelStoreOwner = LocalContext.current as ComponentActivity
+        viewModelStoreOwner = LocalContext.current as ComponentActivity,
+        factory = TicketViewModel.Factory
     )
     // 가계부 관련 화면들이 공유하는 ViewModel (Activity 범위)
     val expenseViewModel: ExpenseViewModel = viewModel(
@@ -312,9 +321,20 @@ fun TravelApp(pendingTicketId: MutableState<Long?> = mutableStateOf(null)) {
                     ticketViewModel.startNew()
                     navController.navigate("ticket_scan")
                 },
+                onAddHotel = {
+                    ticketViewModel.startNew()
+                    navController.navigate("hotel_confirmation_scan")
+                },
+                onSearchHotels = {
+                    navController.navigate("hotel_search")
+                },
                 onEditTicket = { ticket ->
                     ticketViewModel.startEdit(ticket)
-                    navController.navigate("ticket_manual_entry")
+                    if (ticket.type == TicketType.HOTEL) {
+                        navController.navigate("hotel_manual_entry")
+                    } else {
+                        navController.navigate("ticket_manual_entry")
+                    }
                 },
                 onBack = {
                     navController.popBackStack()
@@ -354,6 +374,39 @@ fun TravelApp(pendingTicketId: MutableState<Long?> = mutableStateOf(null)) {
             )
         }
 
+        composable("hotel_search") {
+            HotelSearchScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable("hotel_confirmation_scan") {
+            HotelConfirmationScannerScreen(
+                onRecognized = { candidate ->
+                    ticketViewModel.onHotelScanned(candidate)
+                    navController.navigate("hotel_detail_review")
+                },
+                onManualEntry = { navController.navigate("hotel_manual_entry") },
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable("hotel_detail_review") {
+            HotelDetailReviewScreen(
+                candidate = ticketViewModel.hotelOcrCandidate ?: HotelOcrCandidate(),
+                onBack = { navController.popBackStack() },
+                onSave = { detail -> saveHotelDetail(ticketViewModel, navController, detail) }
+            )
+        }
+
+        composable("hotel_manual_entry") {
+            HotelManualEntryScreen(
+                editing = ticketViewModel.editingTicket?.takeIf { it.type == TicketType.HOTEL }?.hotel,
+                onBack = {
+                    ticketViewModel.startNew()
+                    navController.popBackStack()
+                },
+                onSave = { detail -> saveHotelDetail(ticketViewModel, navController, detail) }
+            )
+        }
     }
 
     // 알림 탭으로 들어온 경우 해당 티켓이 열린 목록 화면으로 이동한다.
@@ -366,5 +419,26 @@ fun TravelApp(pendingTicketId: MutableState<Long?> = mutableStateOf(null)) {
             }
             pendingTicketId.value = null
         }
+    }
+}
+
+/** 호텔 등록/수정 화면 공통 저장 로직. 저장 후 티켓 목록으로 돌아간다. */
+private fun saveHotelDetail(
+    ticketViewModel: TicketViewModel,
+    navController: androidx.navigation.NavHostController,
+    detail: HotelDetail
+) {
+    val draft = TicketDraft(
+        type = TicketType.HOTEL,
+        title = detail.hotelName,
+        startDateTime = detail.checkInTime,
+        locationFrom = detail.address,
+        locationTo = "",
+        confirmationNumber = detail.confirmationNumber,
+        hotel = detail
+    )
+    ticketViewModel.save(draft) {
+        // 검색/스캔을 거치며 여러 화면이 쌓였을 수 있으므로 이미 백스택에 있는 목록 화면까지 한 번에 되돌아간다.
+        navController.popBackStack("ticket_list?highlightId={highlightId}", inclusive = false)
     }
 }

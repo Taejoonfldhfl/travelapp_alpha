@@ -10,13 +10,16 @@ class TicketAlertWorker(context: Context, params: WorkerParameters) : CoroutineW
     override suspend fun doWork(): Result {
         val ticketId = inputData.getLong(KEY_TICKET_ID, -1L)
         if (ticketId < 0) return Result.failure()
+        val slot = inputData.getString(KEY_SLOT)?.let { runCatching { AlarmSlot.valueOf(it) }.getOrNull() }
+            ?: AlarmSlot.PRIMARY
 
         val repository = (applicationContext as MainApplication).ticketRepository
-        repository.getById(ticketId)?.let { TicketNotifier.show(applicationContext, it) }
+        repository.getById(ticketId)?.let { TicketNotifier.show(applicationContext, it, slot) }
         return Result.success()
     }
 
     companion object {
         const val KEY_TICKET_ID = "ticket_id"
+        const val KEY_SLOT = "alarm_slot"
     }
 }

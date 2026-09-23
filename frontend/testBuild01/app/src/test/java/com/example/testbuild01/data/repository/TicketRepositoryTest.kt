@@ -1,14 +1,11 @@
 package com.example.testbuild01.data.repository
 
 import com.example.testbuild01.data.local.TicketCipher
-import com.example.testbuild01.data.local.TicketDao
-import com.example.testbuild01.data.local.TicketEntity
 import com.example.testbuild01.data.local.TicketType
 import com.example.testbuild01.notification.AlarmBackend
+import com.example.testbuild01.notification.AlarmSlot
 import com.example.testbuild01.notification.TicketAlarmScheduler
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -20,33 +17,18 @@ import org.junit.Test
 /** insert/update/delete가 알림 예약·재등록·취소로 이어지는지 확인한다. */
 class TicketRepositoryTest {
 
-    private class FakeDao : TicketDao {
-        val rows = mutableMapOf<Long, TicketEntity>()
-        private var nextId = 1L
-
-        override fun observeAll(): Flow<List<TicketEntity>> = flowOf(rows.values.sortedBy { it.startDateTime })
-        override suspend fun getById(id: Long) = rows[id]
-        override suspend fun getUpcoming(now: Long) = rows.values.filter { it.startDateTime > now }
-        override suspend fun insert(ticket: TicketEntity): Long {
-            val id = nextId++
-            rows[id] = ticket.copy(id = id)
-            return id
-        }
-        override suspend fun update(ticket: TicketEntity) { rows[ticket.id] = ticket }
-        override suspend fun delete(ticket: TicketEntity) { rows.remove(ticket.id) }
-    }
-
     private class FakeBackend : AlarmBackend {
+        // 이 테스트는 BUS/FLIGHT의 PRIMARY 알림만 다룬다. SECONDARY는 항상 취소만 호출되고
+        // (호텔이 아니므로) 실제 항목이 없으므로, PRIMARY만 기록해도 충분하다.
         val exact = mutableMapOf<Long, Long>()
         override fun canScheduleExact() = true
-        override fun scheduleExact(ticketId: Long, triggerAtMillis: Long) { exact[ticketId] = triggerAtMillis }
-        override fun scheduleFallback(ticketId: Long, triggerAtMillis: Long) = Unit
-        override fun cancel(ticketId: Long) { exact.remove(ticketId) }
-    }
-
-    private class ReversingCipher : TicketCipher {
-        override fun encrypt(plainText: String) = "enc:" + plainText.reversed()
-        override fun decrypt(cipherText: String) = cipherText.removePrefix("enc:").reversed()
+        override fun scheduleExact(ticketId: Long, slot: AlarmSlot, triggerAtMillis: Long) {
+            if (slot == AlarmSlot.PRIMARY) exact[ticketId] = triggerAtMillis
+        }
+        override fun scheduleFallback(ticketId: Long, slot: AlarmSlot, triggerAtMillis: Long) = Unit
+        override fun cancel(ticketId: Long, slot: AlarmSlot) {
+            if (slot == AlarmSlot.PRIMARY) exact.remove(ticketId)
+        }
     }
 
     private class BrokenCipher : TicketCipher {
@@ -56,7 +38,7 @@ class TicketRepositoryTest {
 
     private val hour = 60 * 60 * 1000L
     private val now = 1_000_000_000L
-    private val dao = FakeDao()
+    private val dao = FakeTicketDao()
     private val backend = FakeBackend()
     private val repository = TicketRepository(
         dao = dao,
@@ -146,6 +128,25 @@ class TicketRepositoryTest {
 
         assertNotEquals(before, backend.exact.getValue(id))
         assertEquals(1, backend.exact.size)
+    }
+
+    @Test
+    fun update_keepsScheduleLink() = runTest {
+        val id = repository.add(draft(now + 5 * hour))
+        repository.setScheduleLink(id, scheduleId = 42, tripId = 7)
+
+        repository.update(id, draft(now + 9 * hour))
+
+        val ticket = repository.getById(id)!!
+        assertEquals(42, ticket.linkedScheduleId)
+        assertEquals(7, ticket.linkedTripId)
+    }
+
+    @Test
+    fun add_startsUnlinked() = runTest {
+        val id = repository.add(draft(now + 5 * hour))
+
+        assertFalse(repository.getById(id)!!.isLinkedToSchedule)
     }
 
     @Test

@@ -15,11 +15,16 @@ interface TicketCipher {
     fun decrypt(cipherText: String): String
 }
 
-/** 암호화 대상 상세 정보 */
+/**
+ * 암호화 대상 상세 정보.
+ * hotel은 HOTEL 타입에서만 채워진다. 기존에 저장된 BUS/FLIGHT용 JSON에는 hotel 키가 없으므로
+ * Gson이 자동으로 null을 채워 하위호환된다.
+ */
 data class TicketDetails(
     val confirmationNumber: String?,
     val barcodeValue: String,
-    val barcodeFormat: String
+    val barcodeFormat: String,
+    val hotel: HotelDetail? = null
 )
 
 fun TicketDetails.toJson(): String = Gson().toJson(this)

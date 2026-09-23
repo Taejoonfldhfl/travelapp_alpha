@@ -24,6 +24,10 @@ interface TicketDao {
     @Update
     suspend fun update(ticket: TicketEntity)
 
+    /** 암호화된 상세 정보는 다시 쓰지 않고 일정 연결 정보만 바꾼다. 연결 해제는 둘 다 null. */
+    @Query("UPDATE tickets SET linkedScheduleId = :scheduleId, linkedTripId = :tripId WHERE id = :id")
+    suspend fun updateLink(id: Long, scheduleId: Int?, tripId: Int?)
+
     @Delete
     suspend fun delete(ticket: TicketEntity)
 }

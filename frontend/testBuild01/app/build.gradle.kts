@@ -47,6 +47,14 @@ android {
         compose = true
         buildConfig = true
     }
+    // Room 마이그레이션 테스트(MigrationTestHelper)가 버전별 스키마 json을 읽을 수 있게 한다.
+    sourceSets {
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
+}
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {
@@ -70,6 +78,10 @@ dependencies {
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
+    // lifecycle/navigation이 끌어오는 serialization-core 1.7.3을 1.8.1로 맞춘다. AGP는 androidTest 클래스패스를
+    // 앱 버전에 strictly 고정하는데, room-testing(마이그레이션 테스트)의 스키마 파서는 1.8+ 기준으로 생성되어
+    // 1.7.3과 섞이면 AbstractMethodError가 난다. 하위 호환되는 마이너 업데이트다.
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-core:1.8.1")
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.camera.core)
     implementation(libs.androidx.camera.camera2)
@@ -78,6 +90,8 @@ dependencies {
     implementation(libs.mlkit.barcode.scanning)
     implementation(libs.tink.android)
     implementation(libs.zxing.core)
+    // 호텔 예약 딥링크(Custom Tabs)
+    implementation(libs.androidx.browser)
     // 가계부: 영수증 OCR(ML Kit 한국어 텍스트 인식), 통계 차트(Vico), ViewModel (CameraX 는 위 선언 재사용)
     implementation("com.google.mlkit:text-recognition-korean:16.0.1")
     implementation("com.patrykandpatrick.vico:compose-m3:2.1.3")
@@ -91,6 +105,9 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.room.testing)
+    // API 36+ 기기에서 Espresso가 제거된 InputManager.getInstance()를 호출하지 않도록 1.7.x 계열로 맞춘다.
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test:core:1.7.0")
     androidTestImplementation(libs.kotlinx.coroutines.test)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)

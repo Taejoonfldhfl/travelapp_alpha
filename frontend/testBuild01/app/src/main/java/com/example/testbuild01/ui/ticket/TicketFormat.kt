@@ -11,4 +11,5 @@ fun formatDateTime(millis: Long): String =
 fun TicketType.label(): String = when (this) {
     TicketType.BUS -> "버스"
     TicketType.FLIGHT -> "항공"
+    TicketType.HOTEL -> "호텔"
 }

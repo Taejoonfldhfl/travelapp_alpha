@@ -1,5 +1,6 @@
 package com.example.testbuild01.data.repository
 
+import com.example.testbuild01.data.local.HotelDetail
 import com.example.testbuild01.data.local.TicketCipher
 import com.example.testbuild01.data.local.TicketDao
 import com.example.testbuild01.data.local.TicketDetails
@@ -21,7 +22,9 @@ data class TicketDraft(
     val locationTo: String,
     val barcodeValue: String = "",
     val barcodeFormat: String = "",
-    val confirmationNumber: String? = null
+    val confirmationNumber: String? = null,
+    /** type == HOTEL일 때만 채운다. 체크인 임박/무료취소 마감 두 알림 예약에 쓰인다. */
+    val hotel: HotelDetail? = null
 )
 
 /**
@@ -45,9 +48,22 @@ class TicketRepository(
     }
 
     suspend fun update(id: Long, draft: TicketDraft) {
-        val entity = draft.toEntity(id = id)
+        // draft에는 일정 연결 정보가 없으므로 기존 행의 값을 이어받아야 수정 시 연결이 끊기지 않는다.
+        val existing = dao.getById(id)
+        val entity = draft.toEntity(id = id).copy(
+            linkedScheduleId = existing?.linkedScheduleId,
+            linkedTripId = existing?.linkedTripId
+        )
         dao.update(entity)
         scheduler.reschedule(entity)
+    }
+
+    suspend fun setScheduleLink(id: Long, scheduleId: Int, tripId: Int) {
+        dao.updateLink(id, scheduleId, tripId)
+    }
+
+    suspend fun clearScheduleLink(id: Long) {
+        dao.updateLink(id, null, null)
     }
 
     suspend fun delete(ticket: Ticket) {
@@ -71,8 +87,14 @@ class TicketRepository(
         barcodeValue = "",
         barcodeFormat = "",
         confirmationNumber = null,
+        secondaryAlertAt = hotel?.freeCancellationDeadline,
         encryptedDetailsJson = cipher.encrypt(
-            TicketDetails(confirmationNumber, barcodeValue, barcodeFormat).toJson()
+            TicketDetails(
+                confirmationNumber = confirmationNumber ?: hotel?.confirmationNumber,
+                barcodeValue = barcodeValue,
+                barcodeFormat = barcodeFormat,
+                hotel = hotel
+            ).toJson()
         )
     )
 
@@ -88,7 +110,10 @@ class TicketRepository(
             locationTo = locationTo,
             barcodeValue = details?.barcodeValue.orEmpty(),
             barcodeFormat = details?.barcodeFormat.orEmpty(),
-            confirmationNumber = details?.confirmationNumber
+            confirmationNumber = details?.confirmationNumber,
+            hotel = details?.hotel,
+            linkedScheduleId = linkedScheduleId,
+            linkedTripId = linkedTripId
         )
     }
 }

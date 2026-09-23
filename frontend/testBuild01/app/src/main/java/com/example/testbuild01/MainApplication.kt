@@ -3,11 +3,13 @@ package com.example.testbuild01
 import android.app.Application
 import com.example.testbuild01.data.local.TicketDatabase
 import com.example.testbuild01.data.local.TinkTicketCipher
+import com.example.testbuild01.data.repository.HotelScheduleLinker
 import com.example.testbuild01.data.repository.TicketRepository
 import com.example.testbuild01.notification.AndroidAlarmBackend
 import com.example.testbuild01.notification.TicketAlarmScheduler
 import com.example.testbuild01.notification.TicketNotifier
 import com.example.testbuild01.data.network.RetrofitClient
+import com.example.testbuild01.data.network.RetrofitScheduleRemote
 import com.google.android.gms.maps.MapsInitializer
 import com.google.android.gms.maps.OnMapsSdkInitializedCallback
 
@@ -18,6 +20,10 @@ class MainApplication : Application(), OnMapsSdkInitializedCallback {
             cipher = TinkTicketCipher(this),
             scheduler = TicketAlarmScheduler(AndroidAlarmBackend(this))
         )
+    }
+
+    val hotelScheduleLinker: HotelScheduleLinker by lazy {
+        HotelScheduleLinker(repository = ticketRepository, remote = RetrofitScheduleRemote())
     }
 
     override fun onCreate() {

@@ -19,41 +19,49 @@ class AndroidAlarmBackend(context: Context) : AlarmBackend {
     override fun canScheduleExact(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()
 
-    override fun scheduleExact(ticketId: Long, triggerAtMillis: Long) {
+    override fun scheduleExact(ticketId: Long, slot: AlarmSlot, triggerAtMillis: Long) {
         alarmManager.setExactAndAllowWhileIdle(
             AlarmManager.RTC_WAKEUP,
             triggerAtMillis,
-            alarmIntent(ticketId)
+            alarmIntent(ticketId, slot)
         )
     }
 
-    override fun scheduleFallback(ticketId: Long, triggerAtMillis: Long) {
+    override fun scheduleFallback(ticketId: Long, slot: AlarmSlot, triggerAtMillis: Long) {
         val delay = (triggerAtMillis - System.currentTimeMillis()).coerceAtLeast(0)
         val request = OneTimeWorkRequestBuilder<TicketAlertWorker>()
             .setInitialDelay(delay, TimeUnit.MILLISECONDS)
-            .setInputData(workDataOf(TicketAlertWorker.KEY_TICKET_ID to ticketId))
+            .setInputData(
+                workDataOf(
+                    TicketAlertWorker.KEY_TICKET_ID to ticketId,
+                    TicketAlertWorker.KEY_SLOT to slot.name
+                )
+            )
             .build()
         WorkManager.getInstance(appContext)
-            .enqueueUniqueWork(workName(ticketId), ExistingWorkPolicy.REPLACE, request)
+            .enqueueUniqueWork(workName(ticketId, slot), ExistingWorkPolicy.REPLACE, request)
     }
 
-    override fun cancel(ticketId: Long) {
-        alarmManager.cancel(alarmIntent(ticketId))
-        WorkManager.getInstance(appContext).cancelUniqueWork(workName(ticketId))
+    override fun cancel(ticketId: Long, slot: AlarmSlot) {
+        alarmManager.cancel(alarmIntent(ticketId, slot))
+        WorkManager.getInstance(appContext).cancelUniqueWork(workName(ticketId, slot))
     }
 
-    private fun workName(ticketId: Long) = "ticket_alert_$ticketId"
+    private fun workName(ticketId: Long, slot: AlarmSlot) = "ticket_alert_${ticketId}_${slot.name}"
 
-    // 티켓 id를 data URI에 넣어 티켓마다 서로 다른 PendingIntent가 되도록 한다.
-    private fun alarmIntent(ticketId: Long): PendingIntent {
+    // 티켓 id + 슬롯을 request code와 data URI에 넣어 슬롯마다 서로 다른 PendingIntent가 되도록 한다.
+    private fun requestCode(ticketId: Long, slot: AlarmSlot): Int = (ticketId * 2 + slot.ordinal).toInt()
+
+    private fun alarmIntent(ticketId: Long, slot: AlarmSlot): PendingIntent {
         val intent = Intent(appContext, TicketAlarmReceiver::class.java).apply {
             action = TicketAlarmReceiver.ACTION_TICKET_ALARM
-            data = Uri.parse("ticket://alarm/$ticketId")
+            data = Uri.parse("ticket://alarm/$ticketId/${slot.name}")
             putExtra(TicketAlarmReceiver.EXTRA_TICKET_ID, ticketId)
+            putExtra(TicketAlarmReceiver.EXTRA_SLOT, slot.name)
         }
         return PendingIntent.getBroadcast(
             appContext,
-            ticketId.toInt(),
+            requestCode(ticketId, slot),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )

@@ -7,7 +7,8 @@ data class RouteOptimizationStop(
     val latitude: Double,
     val longitude: Double,
     val visitOrder: Int,
-    val travelTimeFromPreviousSeconds: Double
+    val travelTimeFromPreviousSeconds: Double,
+    val isHotelCheckIn: Boolean = false
 )
 
 data class RouteOptimizationResult(
@@ -16,5 +17,6 @@ data class RouteOptimizationResult(
     val totalTravelTimeSeconds: Double,
     val solverUsed: String,
     val applied: Boolean,
-    val skippedSchedulesWithoutCoordinates: List<String>
+    val skippedSchedulesWithoutCoordinates: List<String>,
+    val anchorAdjusted: Boolean = false
 )

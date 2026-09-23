@@ -13,5 +13,6 @@ data class ScheduleResponse(
     val longitude: Double?,
     val priority: Int,
     val isEssential: Boolean,
+    val isHotelCheckIn: Boolean = false,
     val createdAt: String
 )

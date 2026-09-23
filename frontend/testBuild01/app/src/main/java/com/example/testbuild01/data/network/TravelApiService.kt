@@ -106,6 +106,36 @@ interface TravelApiService {
         @Body request: AiChatRequest
     ): Call<AiChatResponse>
 
+    // ---- 호텔 티켓 ↔ 일정 연동 (suspend) ----
+
+    @GET("api/Trip")
+    suspend fun getTripsSuspend(): Response<List<TripResponse>>
+
+    @GET("api/Trip/{tripId}/Schedule/{scheduleId}")
+    suspend fun getScheduleSuspend(
+        @Path("tripId") tripId: Int,
+        @Path("scheduleId") scheduleId: Int
+    ): Response<ScheduleResponse>
+
+    @POST("api/Trip/{tripId}/Schedule")
+    suspend fun createScheduleSuspend(
+        @Path("tripId") tripId: Int,
+        @Body request: ScheduleCreateRequest
+    ): Response<ScheduleResponse>
+
+    @PUT("api/Trip/{tripId}/Schedule/{scheduleId}")
+    suspend fun updateScheduleSuspend(
+        @Path("tripId") tripId: Int,
+        @Path("scheduleId") scheduleId: Int,
+        @Body request: ScheduleUpdateRequest
+    ): Response<ScheduleResponse>
+
+    @DELETE("api/Trip/{tripId}/Schedule/{scheduleId}")
+    suspend fun deleteScheduleSuspend(
+        @Path("tripId") tripId: Int,
+        @Path("scheduleId") scheduleId: Int
+    ): Response<Void>
+
     // ---- 가계부 (suspend) ----
 
     @GET("api/Trip/{id}/members")

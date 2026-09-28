@@ -20,6 +20,8 @@ public class ApplicationDbContext : DbContext
 
     public DbSet<ExpenseSplit> ExpenseSplits { get; set; }
 
+    public DbSet<Settlement> Settlements { get; set; }
+
     // 같은 여행에서 [start, end) 구간과 시간이 겹치는 기존 일정들을 시작 시간 순으로 돌려준다.
     // 호텔 체크인 일정은 체크인~체크아웃 전체를 감싸도록 설계되어 다른 활동과 겹치는 게 정상이므로,
     // 신규 쪽이 호텔 일정이면 검사하지 않고, 기존 쪽의 호텔 일정도 비교 대상에서 뺀다.
@@ -71,6 +73,13 @@ public class ApplicationDbContext : DbContext
             s.Property(x => x.ShareAmount).HasPrecision(18, 2);
             s.HasOne(x => x.Expense).WithMany(x => x.Splits).HasForeignKey(x => x.ExpenseId).OnDelete(DeleteBehavior.Cascade);
             s.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<Settlement>(s =>
+        {
+            s.HasOne(x => x.Trip).WithMany().HasForeignKey(x => x.TripId).OnDelete(DeleteBehavior.Cascade);
+            s.HasOne(x => x.FinalizedByUser).WithMany().HasForeignKey(x => x.FinalizedByUserId).OnDelete(DeleteBehavior.Restrict);
+            s.HasIndex(x => x.TripId);
         });
 
         modelBuilder.Entity<TripMember>()

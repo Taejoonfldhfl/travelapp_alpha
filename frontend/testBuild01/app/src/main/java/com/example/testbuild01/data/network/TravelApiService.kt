@@ -23,6 +23,7 @@ import com.example.testbuild01.data.model.ExpenseBreakdownItem
 import com.example.testbuild01.data.model.ExpenseResponse
 import com.example.testbuild01.data.model.ExpenseUpsertRequest
 import com.example.testbuild01.data.model.SettlementTransfer
+import com.example.testbuild01.data.model.SettlementResult
 
 import retrofit2.Call
 import retrofit2.Response
@@ -177,6 +178,16 @@ interface TravelApiService {
 
     @GET("api/Trip/{tripId}/settlement")
     suspend fun getSettlement(@Path("tripId") tripId: Int): Response<List<SettlementTransfer>>
+
+    // 정산 확정: 현재 정산 결과를 스냅샷으로 저장하고, 같은 여행 멤버들에게 알림을 보낸다.
+    @POST("api/Trip/{tripId}/Expense/settlements/finalize")
+    suspend fun finalizeSettlement(@Path("tripId") tripId: Int): Response<SettlementResult>
+
+    @GET("api/Trip/{tripId}/Expense/settlements/{settlementId}")
+    suspend fun getFinalizedSettlement(
+        @Path("tripId") tripId: Int,
+        @Path("settlementId") settlementId: Int
+    ): Response<SettlementResult>
 
     // 숙박시설 정보 검색(TourAPI). keyword / areaCode / lat+lng 중 하나만 채운다(null 파라미터는 전송되지 않음).
     @GET("api/HotelInfo/search")

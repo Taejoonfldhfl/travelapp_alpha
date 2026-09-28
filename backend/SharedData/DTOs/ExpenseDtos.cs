@@ -66,4 +66,15 @@ namespace SharedData.DTOs
         public int ToUserId { get; set; }
         public decimal Amount { get; set; }
     }
+
+    // 확정(finalize)된 정산 스냅샷. Transfers는 확정 시점의 계산 결과를 그대로 저장한 것이라,
+    // 확정 이후 지출이 추가/수정돼도 바뀌지 않는다.
+    public class SettlementDto
+    {
+        public int Id { get; set; }
+        public int TripId { get; set; }
+        public int FinalizedByUserId { get; set; }
+        public DateTime FinalizedAt { get; set; }
+        public List<SettlementTransferDto> Transfers { get; set; } = new();
+    }
 }

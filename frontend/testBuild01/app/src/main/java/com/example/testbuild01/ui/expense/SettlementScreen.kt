@@ -13,21 +13,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.example.testbuild01.data.model.SettlementTransfer
-
-// 정산 요약 텍스트. 순수 함수라서 단위 테스트할 수 있다.
-internal fun formatSettlementSummary(
-    tripTitle: String,
-    transfers: List<SettlementTransfer>,
-    nameOf: (Int) -> String
-): String {
-    if (transfers.isEmpty()) return "[$tripTitle] 정산할 내역이 없어요."
-    return buildString {
-        appendLine("[$tripTitle] 정산 결과")
-        transfers.forEach { appendLine("${nameOf(it.fromUserId)} → ${nameOf(it.toUserId)} : ${won(it.amount)}") }
-    }.trimEnd()
-}
-
 @Composable
 fun SettlementScreen(viewModel: ExpenseViewModel, tripTitle: String, onBack: () -> Unit) {
     val context = LocalContext.current
@@ -70,6 +55,10 @@ fun SettlementScreen(viewModel: ExpenseViewModel, tripTitle: String, onBack: () 
 
             Button(
                 onClick = {
+                    // 확정 API 호출(같은 여행 멤버에게 알림)과 외부 공유 시트는 동시에 진행한다.
+                    // 확정이 실패해도(네트워크 오류 등) 공유 자체는 막지 않는다 — 실패는 errorMessage로 별도 노출.
+                    viewModel.finalizeSettlement { }
+
                     val text = formatSettlementSummary(tripTitle, transfers, viewModel::memberName)
                     val send = Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
@@ -79,7 +68,7 @@ fun SettlementScreen(viewModel: ExpenseViewModel, tripTitle: String, onBack: () 
                 },
                 enabled = transfers.isNotEmpty(),
                 modifier = Modifier.fillMaxWidth()
-            ) { Text("정산 요약 공유") }
+            ) { Text("정산 확정 및 공유") }
         }
     }
 }

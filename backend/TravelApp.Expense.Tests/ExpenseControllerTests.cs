@@ -15,18 +15,31 @@ public class ExpenseControllerTests
 {
     private sealed class NoopPushNotifier : IPushNotifier
     {
-        public Task NotifyTripMembersAsync(int tripId, string title, string body, CancellationToken ct = default)
+        public Task NotifyTripMembersAsync(int tripId, string title, string body, int? excludeUserId = null, CancellationToken ct = default)
             => Task.CompletedTask;
     }
 
-    private static (ExpenseController controller, ApplicationDbContext db) Create(int currentUserId = 1)
+    // 호출 여부/인자를 검증하기 위한 스파이.
+    private sealed class SpyPushNotifier : IPushNotifier
+    {
+        public List<(int TripId, string Title, string Body, int? ExcludeUserId)> Calls { get; } = new();
+
+        public Task NotifyTripMembersAsync(int tripId, string title, string body, int? excludeUserId = null, CancellationToken ct = default)
+        {
+            Calls.Add((tripId, title, body, excludeUserId));
+            return Task.CompletedTask;
+        }
+    }
+
+    private static (ExpenseController controller, ApplicationDbContext db) Create(
+        int currentUserId = 1, IPushNotifier? pushNotifier = null)
     {
         var options = new DbContextOptionsBuilder<ApplicationDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options;
         var db = new ApplicationDbContext(options);
 
-        var controller = new ExpenseController(db, new NoopPushNotifier())
+        var controller = new ExpenseController(db, pushNotifier ?? new NoopPushNotifier())
         {
             ControllerContext = new ControllerContext
             {
@@ -213,10 +226,123 @@ public class ExpenseControllerTests
         Assert.Equal(list.Single(e => e.Amount == 5000m).Splits.Single().UserId, 2);
     }
 
-    // TODO: 수정/삭제 시 분담 교체, 예산 설정 권한(Owner 전용), settlement 엔드포인트 통합 테스트
+    // TODO: 수정/삭제 시 분담 교체, 예산 설정 권한(Owner 전용) 통합 테스트
     [Fact(Skip = "skeleton")]
     public Task UpdateExpense_ReplacesSplits() => Task.CompletedTask;
 
-    [Fact(Skip = "skeleton")]
-    public Task Settlement_ReturnsMinimizedTransfers() => Task.CompletedTask;
+    // ---- 정산 확정(finalize) / 조회 ----
+
+    private static void AddExpenseWithSplit(ApplicationDbContext db, int payerId, decimal amount, int shareUserId, decimal shareAmount)
+    {
+        db.Expenses.Add(new SharedExpense
+        {
+            TripId = 1,
+            PaidByUserId = payerId,
+            Amount = amount,
+            Category = ExpenseCategory.FOOD,
+            Splits = new List<ExpenseSplit> { new() { UserId = shareUserId, ShareAmount = shareAmount } }
+        });
+        db.SaveChanges();
+    }
+
+    [Fact]
+    public async Task Settlement_ReturnsMinimizedTransfers()
+    {
+        var (controller, db) = Create();
+        SeedTrip(db, null);
+        // 1이 10000원을 내고 2가 그중 4000원을 분담 -> 2가 1에게 4000원을 줘야 함
+        AddExpenseWithSplit(db, payerId: 1, amount: 10000m, shareUserId: 2, shareAmount: 4000m);
+
+        var result = await controller.GetSettlement(1);
+
+        var list = (List<SettlementTransferDto>)Assert.IsType<OkObjectResult>(result.Result).Value!;
+        var transfer = Assert.Single(list);
+        Assert.Equal(2, transfer.FromUserId);
+        Assert.Equal(1, transfer.ToUserId);
+        Assert.Equal(4000m, transfer.Amount);
+    }
+
+    [Fact]
+    public async Task FinalizeSettlement_PersistsSnapshotAndNotifiesMembersExcludingFinalizer()
+    {
+        var spy = new SpyPushNotifier();
+        var (controller, db) = Create(currentUserId: 1, pushNotifier: spy);
+        SeedTrip(db, null);
+        AddExpenseWithSplit(db, payerId: 1, amount: 10000m, shareUserId: 2, shareAmount: 4000m);
+
+        var result = await controller.FinalizeSettlement(1);
+
+        var dto = (SettlementDto)Assert.IsType<OkObjectResult>(result.Result).Value!;
+        Assert.True(dto.Id > 0);
+        Assert.Equal(1, dto.TripId);
+        Assert.Equal(1, dto.FinalizedByUserId);
+        var transfer = Assert.Single(dto.Transfers);
+        Assert.Equal(2, transfer.FromUserId);
+        Assert.Equal(1, transfer.ToUserId);
+        Assert.Equal(4000m, transfer.Amount);
+
+        Assert.Single(db.Settlements);
+        var call = Assert.Single(spy.Calls);
+        Assert.Equal(1, call.TripId);
+        Assert.Equal(1, call.ExcludeUserId); // 확정한 본인은 제외
+    }
+
+    [Fact]
+    public async Task FinalizeSettlement_NonMember_IsForbidden()
+    {
+        var (controller, db) = Create(currentUserId: 99);
+        SeedTrip(db, null);
+
+        var result = await controller.FinalizeSettlement(1);
+
+        Assert.IsType<ForbidResult>(result.Result);
+    }
+
+    [Fact]
+    public async Task GetFinalizedSettlement_ReturnsPersistedSnapshotEvenAfterExpensesChange()
+    {
+        var (controller, db) = Create();
+        SeedTrip(db, null);
+        AddExpenseWithSplit(db, payerId: 1, amount: 10000m, shareUserId: 2, shareAmount: 4000m);
+        var finalized = (SettlementDto)Assert.IsType<OkObjectResult>((await controller.FinalizeSettlement(1)).Result).Value!;
+
+        // 확정 후 지출이 더 생겨도 이미 확정된 스냅샷은 바뀌지 않아야 한다.
+        AddExpenseWithSplit(db, payerId: 2, amount: 6000m, shareUserId: 1, shareAmount: 3000m);
+
+        var result = await controller.GetFinalizedSettlement(1, finalized.Id);
+
+        var dto = (SettlementDto)Assert.IsType<OkObjectResult>(result.Result).Value!;
+        var transfer = Assert.Single(dto.Transfers);
+        Assert.Equal(4000m, transfer.Amount);
+    }
+
+    [Fact]
+    public async Task GetFinalizedSettlement_NonMember_IsForbidden()
+    {
+        var (controller, db) = Create(currentUserId: 1);
+        SeedTrip(db, null);
+        var finalized = (SettlementDto)Assert.IsType<OkObjectResult>((await controller.FinalizeSettlement(1)).Result).Value!;
+
+        // 같은 DB를, 여행 멤버가 아닌 사용자(99)로 다시 조회한다.
+        var (outsiderController, _) = Create(currentUserId: 99);
+        outsiderController = new ExpenseController(db, new NoopPushNotifier())
+        {
+            ControllerContext = outsiderController.ControllerContext
+        };
+
+        var outsiderResult = await outsiderController.GetFinalizedSettlement(1, finalized.Id);
+
+        Assert.IsType<ForbidResult>(outsiderResult.Result);
+    }
+
+    [Fact]
+    public async Task GetFinalizedSettlement_UnknownId_ReturnsNotFound()
+    {
+        var (controller, db) = Create();
+        SeedTrip(db, null);
+
+        var result = await controller.GetFinalizedSettlement(1, 404);
+
+        Assert.IsType<NotFoundResult>(result.Result);
+    }
 }

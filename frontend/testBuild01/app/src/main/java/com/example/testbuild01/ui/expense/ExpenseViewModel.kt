@@ -110,6 +110,24 @@ class ExpenseViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // 정산 확정: 서버에 현재 정산 결과를 스냅샷으로 저장하고, 같은 여행 멤버(본인 제외)에게 알림을 보낸다.
+    fun finalizeSettlement(onDone: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val res = api.finalizeSettlement(tripId)
+                if (res.isSuccessful) {
+                    onDone(true)
+                } else {
+                    errorMessage = "정산 확정 실패 (${res.code()})"
+                    onDone(false)
+                }
+            } catch (e: Exception) {
+                errorMessage = "정산 확정 실패: ${e.message}"
+                onDone(false)
+            }
+        }
+    }
+
     fun deleteExpense(expenseId: Int) {
         viewModelScope.launch {
             try {

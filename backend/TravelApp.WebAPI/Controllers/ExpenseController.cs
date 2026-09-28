@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using SharedData.DTOs;
 using SharedData.Models;
 using System.Security.Claims;
+using System.Text.Json;
 using TravelApp.WebAPI.Data;
 using TravelApp.WebAPI.Services.Expenses;
 
@@ -151,13 +152,62 @@ namespace TravelApp.WebAPI.Controllers
             return Ok(result);
         }
 
-        // 9. 더치페이 정산 결과
+        // 9. 더치페이 정산 결과 (실시간 계산 — 지출이 바뀌면 결과도 바뀐다. 확정본은 10/11번 참고)
         [HttpGet("Trip/{tripId}/settlement")]
         public async Task<ActionResult<List<SettlementTransferDto>>> GetSettlement(int tripId)
         {
             if (!await _context.Trips.AnyAsync(t => t.Id == tripId)) return NotFound();
             if (!await IsMemberAsync(tripId, CurrentUserId)) return Forbid();
 
+            return Ok(await ComputeSettlementTransfersAsync(tripId));
+        }
+
+        // 10. 정산 확정 — 현재 정산 결과를 스냅샷으로 저장하고, 확정한 본인을 제외한 같은 여행
+        // 멤버 전원에게 "정산 결과가 도착했어요" 알림을 보낸다.
+        [HttpPost("Trip/{tripId}/Expense/settlements/finalize")]
+        public async Task<ActionResult<SettlementDto>> FinalizeSettlement(int tripId)
+        {
+            var trip = await _context.Trips.AsNoTracking().FirstOrDefaultAsync(t => t.Id == tripId);
+            if (trip == null) return NotFound();
+            if (!await IsMemberAsync(tripId, CurrentUserId)) return Forbid();
+
+            var transfers = await ComputeSettlementTransfersAsync(tripId);
+
+            var settlement = new Settlement
+            {
+                TripId = tripId,
+                FinalizedByUserId = CurrentUserId,
+                TransfersJson = JsonSerializer.Serialize(transfers)
+            };
+            _context.Settlements.Add(settlement);
+            await _context.SaveChangesAsync();
+
+            await _pushNotifier.NotifyTripMembersAsync(
+                tripId, "정산 결과 도착", $"'{trip.Title}' 여행 정산 결과가 도착했어요.", excludeUserId: CurrentUserId);
+
+            return Ok(ToSettlementDto(settlement, transfers));
+        }
+
+        // 11. 확정된 정산 결과 조회 — 본인이 속한 여행이 아니면 403.
+        [HttpGet("Trip/{tripId}/Expense/settlements/{settlementId}")]
+        public async Task<ActionResult<SettlementDto>> GetFinalizedSettlement(int tripId, int settlementId)
+        {
+            if (!await IsMemberAsync(tripId, CurrentUserId)) return Forbid();
+
+            var settlement = await _context.Settlements
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.Id == settlementId && s.TripId == tripId);
+            if (settlement == null) return NotFound();
+
+            var transfers = JsonSerializer.Deserialize<List<SettlementTransferDto>>(settlement.TransfersJson)
+                ?? new List<SettlementTransferDto>();
+            return Ok(ToSettlementDto(settlement, transfers));
+        }
+
+        // ---- helpers ----
+
+        private async Task<List<SettlementTransferDto>> ComputeSettlementTransfersAsync(int tripId)
+        {
             var expenses = await _context.Expenses
                 .AsNoTracking()
                 .Include(e => e.Splits)
@@ -168,10 +218,17 @@ namespace TravelApp.WebAPI.Controllers
                 new[] { new SettlementCalculator.Payment(e.PaidByUserId, e.Amount) },
                 e.Splits.Select(s => new SettlementCalculator.Share(s.UserId, s.ShareAmount)).ToList()));
 
-            return Ok(SettlementCalculator.Settle(entries));
+            return SettlementCalculator.Settle(entries);
         }
 
-        // ---- helpers ----
+        private static SettlementDto ToSettlementDto(Settlement settlement, List<SettlementTransferDto> transfers) => new()
+        {
+            Id = settlement.Id,
+            TripId = settlement.TripId,
+            FinalizedByUserId = settlement.FinalizedByUserId,
+            FinalizedAt = settlement.FinalizedAt,
+            Transfers = transfers
+        };
 
         private async Task<BudgetSummaryDto> BuildBudgetSummaryAsync(Trip trip)
         {

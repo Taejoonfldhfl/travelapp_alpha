@@ -4,7 +4,8 @@ namespace TravelApp.WebAPI.Services.Expenses;
 // 실제 FCM 연동은 미룬다. 현재는 로그만 남기는 Mock 만 등록한다.
 public interface IPushNotifier
 {
-    Task NotifyTripMembersAsync(int tripId, string title, string body, CancellationToken ct = default);
+    // excludeUserId: 이 사용자에게는 보내지 않는다(예: 정산을 확정한 본인은 이미 알고 있으므로 제외).
+    Task NotifyTripMembersAsync(int tripId, string title, string body, int? excludeUserId = null, CancellationToken ct = default);
 }
 
 public class LogPushNotifier : IPushNotifier
@@ -16,9 +17,11 @@ public class LogPushNotifier : IPushNotifier
         _logger = logger;
     }
 
-    public Task NotifyTripMembersAsync(int tripId, string title, string body, CancellationToken ct = default)
+    public Task NotifyTripMembersAsync(int tripId, string title, string body, int? excludeUserId = null, CancellationToken ct = default)
     {
-        _logger.LogInformation("[MockPush] trip={TripId} title={Title} body={Body}", tripId, title, body);
+        _logger.LogInformation(
+            "[MockPush] trip={TripId} title={Title} body={Body} excludeUserId={ExcludeUserId}",
+            tripId, title, body, excludeUserId);
         return Task.CompletedTask;
     }
 }

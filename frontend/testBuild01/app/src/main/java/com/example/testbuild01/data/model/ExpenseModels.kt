@@ -59,3 +59,12 @@ data class SettlementTransfer(
     val toUserId: Int,
     val amount: Double
 )
+
+// 확정(finalize)된 정산 스냅샷. 확정 이후 지출이 바뀌어도 transfers는 확정 시점 값 그대로다.
+data class SettlementResult(
+    val id: Int,
+    val tripId: Int,
+    val finalizedByUserId: Int,
+    val finalizedAt: String,
+    val transfers: List<SettlementTransfer>
+)

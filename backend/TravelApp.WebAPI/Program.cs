@@ -190,6 +190,14 @@ namespace TravelApp.WebAPI
                 });
             var app = builder.Build();
 
+            // Fcm을 선택했는데 서비스 계정 키가 없거나 초기화에 실패해 Log로 폴백한 경우, 여기서 경고를 남긴다.
+            if (fcmFallbackReason != null)
+            {
+                app.Logger.LogWarning(
+                    "PushNotification:Provider가 Fcm으로 설정되었지만 {Reason}. Log(Mock)로 대체합니다.",
+                    fcmFallbackReason);
+            }
+
             // 플레이스홀더 시크릿이 그대로 남아 있으면 시작 시점에 경고한다(운영 배포 실수 방지).
             foreach (var warning in Services.SecretsConfigurationCheck.FindPlaceholderSecrets(app.Configuration))
             {

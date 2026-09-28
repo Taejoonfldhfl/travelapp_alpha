@@ -190,22 +190,13 @@ class AiChatViewModel(
                         _messages.update { it + ChatMessage.AiMessage(body.replyText) }
 
                         body.recommendations.forEach { recommendation ->
-                            val cardId = "card_${cardSequence++}"
+                            val card = recommendation.toRecommendationCard("card_${cardSequence++}")
 
-                            _messages.update {
-                                it + ChatMessage.RecommendationCard(
-                                    id = cardId,
-                                    placeName = recommendation.placeName,
-                                    description = recommendation.description,
-                                    suggestedStartTime = recommendation.suggestedStartTime,
-                                    suggestedEndTime = recommendation.suggestedEndTime,
-                                    // 규칙 2: 서버가 이미 좌표를 확정한 추천만 내려주므로 그대로 신뢰해 사용한다.
-                                    latitude = recommendation.latitude,
-                                    longitude = recommendation.longitude
-                                )
+                            _messages.update { it + card }
+
+                            if (card.needsPhotoLookup()) {
+                                loadPlacePhoto(card.id, card.placeName)
                             }
-
-                            loadPlacePhoto(cardId, recommendation.placeName)
                         }
                     } else {
                         _messages.update {

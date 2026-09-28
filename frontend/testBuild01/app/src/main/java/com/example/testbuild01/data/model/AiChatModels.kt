@@ -7,8 +7,9 @@ data class AiChatRequest(
     val currentLongitude: Double? = null
 )
 
-// 서버 응답에는 사진이 절대 포함되지 않는다.
-// placeName으로 PlacesRepository를 통해 프론트에서 별도로 사진을 조회한다.
+// imageUrl은 서버의 사진 provider(IPlaceImageProvider)가 채운 대표 사진 URL이다(LLM이 만든 값이 아님).
+// null이면 placeName으로 PlacesRepository를 통해 프론트에서 별도로 사진을 조회하고,
+// 그래도 없으면 카드에 "사진 없음" 플레이스홀더를 보여준다.
 //
 // placeId/latitude/longitude는 서버가 장소 검색 API 결과와 대조해 좌표를 확정한
 // 장소에만 채워진다. 좌표를 확정하지 못한 추천은 서버에서 이미 걸러지므로,
@@ -20,7 +21,8 @@ data class AiPlaceRecommendation(
     val suggestedEndTime: String,
     val placeId: String? = null,
     val latitude: Double? = null,
-    val longitude: Double? = null
+    val longitude: Double? = null,
+    val imageUrl: String? = null
 )
 
 data class AiChatResponse(

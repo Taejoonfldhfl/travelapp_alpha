@@ -5,6 +5,7 @@ using Microsoft.OpenApi.Models;
 using System.Text;
 using TravelApp.WebAPI.Data;
 using TravelApp.WebAPI.Services.Llm;
+using TravelApp.WebAPI.Services.PlaceImage;
 using TravelApp.WebAPI.Services.PlaceSearch;
 using TravelApp.WebAPI.Services.RouteOptimization;
 
@@ -93,6 +94,16 @@ namespace TravelApp.WebAPI
             {
                 builder.Services.AddSingleton<INearbyPlaceSearchProvider, MockNearbyPlaceSearchProvider>();
             }
+
+            // 챗봇 추천 카드의 장소 대표 사진: 설정("PlaceImage:Provider")으로 교체 가능하게 분리.
+            // 사진 API 키가 준비되기 전까지는 Mock(항상 사진 없음)뿐이다. 실제 provider를 추가하면 여기에 분기를 더한다.
+            var placeImageProviderName = builder.Configuration["PlaceImage:Provider"] ?? "Mock";
+            if (!string.Equals(placeImageProviderName, "Mock", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"알 수 없는 PlaceImage:Provider '{placeImageProviderName}'입니다. 현재 지원: Mock");
+            }
+            builder.Services.AddSingleton<IPlaceImageProvider, MockPlaceImageProvider>();
 
             builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 .AddJwtBearer(options =>

@@ -8,6 +8,7 @@ using System.Text.Json;
 using TravelApp.WebAPI.Data;
 using TravelApp.WebAPI.Services;
 using TravelApp.WebAPI.Services.Llm;
+using TravelApp.WebAPI.Services.PlaceImage;
 using TravelApp.WebAPI.Services.PlaceSearch;
 using TravelApp.WebAPI.Services.QueryAnalysis;
 
@@ -23,6 +24,7 @@ namespace TravelApp.WebAPI.Controllers
         private readonly ApplicationDbContext _context;
         private readonly AnthropicLlmClient _llmClient;
         private readonly PlaceCandidateSearchService _candidateSearch;
+        private readonly IPlaceImageProvider _placeImageProvider;
         private readonly ILogger<AiChatController> _logger;
 
         // 환각 검토용 로그. 수동 검토 테스트(AiChatHallucinationReview)가 이 EventId로 로그를 골라낸다.
@@ -36,11 +38,13 @@ namespace TravelApp.WebAPI.Controllers
             ApplicationDbContext context,
             AnthropicLlmClient llmClient,
             INearbyPlaceSearchProvider placeSearchProvider,
+            IPlaceImageProvider placeImageProvider,
             ILogger<AiChatController> logger)
         {
             _context = context;
             _llmClient = llmClient;
             _candidateSearch = new PlaceCandidateSearchService(placeSearchProvider, new LocationResolver(placeSearchProvider));
+            _placeImageProvider = placeImageProvider;
             _logger = logger;
         }
 
@@ -235,6 +239,7 @@ namespace TravelApp.WebAPI.Controllers
                 }
 
                 response.Recommendations = outcomes.Where(o => o.Accepted).Select(o => o.Recommendation).ToList();
+                await AttachImagesAsync(sessionId, response.Recommendations, HttpContext.RequestAborted);
 
                 // LLM이 추천을 냈지만 하나도 검증되지 않았다 — LLM 실패(502)와 구분해 검증 실패로 알린다.
                 if (rawRecommendations.Count > 0 && response.Recommendations.Count == 0)
@@ -246,6 +251,27 @@ namespace TravelApp.WebAPI.Controllers
 
             await SaveHistoryAsync(session, history, rawReply);
             return Ok(response);
+        }
+
+        // 검증을 통과한 추천에만 대표 사진 URL을 붙인다. 사진 조회 실패는 추천 자체를 막지 않는다(ImageUrl=null -> 클라이언트 플레이스홀더).
+        private async Task AttachImagesAsync(
+            int sessionId, IReadOnlyList<AiPlaceRecommendationDto> recommendations, CancellationToken cancellationToken)
+        {
+            await Task.WhenAll(recommendations.Select(async recommendation =>
+            {
+                try
+                {
+                    recommendation.ImageUrl = await _placeImageProvider.GetRepresentativeImageUrlAsync(
+                        recommendation.PlaceName, recommendation.Latitude, recommendation.Longitude, cancellationToken);
+                }
+                catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or JsonException ||
+                                           (ex is TaskCanceledException && !cancellationToken.IsCancellationRequested))
+                {
+                    _logger.LogWarning("장소 사진 조회 실패 (Session {SessionId}, {PlaceName}): {Error}",
+                        sessionId, recommendation.PlaceName, ex.Message);
+                    recommendation.ImageUrl = null;
+                }
+            }));
         }
 
         private async Task SaveHistoryAsync(ChatSession session, List<ChatHistoryMessage> history, string assistantContent)

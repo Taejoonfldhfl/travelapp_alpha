@@ -39,7 +39,8 @@ POST /api/Trip/{tripId}/AiChat/sessions/{sessionId}/messages
       "placeName": "string",
       "description": "string",
       "suggestedStartTime": "yyyy-MM-ddTHH:mm:ssZ",
-      "suggestedEndTime": "yyyy-MM-ddTHH:mm:ssZ"
+      "suggestedEndTime": "yyyy-MM-ddTHH:mm:ssZ",
+      "imageUrl": "string | null"
     }
   ]
 }
@@ -67,7 +68,7 @@ POST /api/Trip/{tripId}/AiChat/sessions/{sessionId}/messages
 | `PlacesRepository` | `data/repository/PlacesRepository.kt` | Google Places API로 추천 장소의 대표 사진 조회 |
 | `PlacesApiService` | `data/network/PlacesApiService.kt` | Places "Find Place from Text" Retrofit 인터페이스 |
 
-추천 카드의 사진은 AI 응답에 포함하지 않고, `placeName`으로 Google Places API를 별도 호출해 가져옵니다 (LLM이 존재하지 않는 이미지 URL을 생성하는 것을 방지).
+추천 카드의 사진은 LLM 응답에서 받지 않습니다 (LLM이 존재하지 않는 이미지 URL을 생성하는 것을 방지). 서버가 검증된 추천에만 `IPlaceImageProvider`(설정 `PlaceImage:Provider`, 현재 `Mock` = 항상 사진 없음)로 `imageUrl`을 채우고, `imageUrl`이 null이면 앱이 `placeName`으로 Google Places API를 별도 호출하며, 그래도 없거나 이미지 로딩에 실패하면 "사진 없음" 플레이스홀더를 보여줍니다.
 
 ## 실행 전 준비
 

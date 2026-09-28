@@ -12,6 +12,7 @@ using SharedData.Models;
 using TravelApp.WebAPI.Controllers;
 using TravelApp.WebAPI.Data;
 using TravelApp.WebAPI.Services.Llm;
+using TravelApp.WebAPI.Services.PlaceImage;
 using Xunit;
 using static TravelApp.WebAPI.Tests.FakeNameSearchProvider;
 
@@ -22,6 +23,30 @@ namespace TravelApp.WebAPI.Tests
     {
         private const int TripId = 1;
         private const int UserId = 1;
+
+        // 장소 이름별로 정해 둔 사진 URL을 돌려주고, 어떤 추천(이름/좌표)으로 호출됐는지 기록한다. Throw를 주면 조회 실패를 재현한다.
+        private sealed class FakePlaceImageProvider(Dictionary<string, string> urlsByPlaceName) : IPlaceImageProvider
+        {
+            public List<(string PlaceName, double? Latitude, double? Longitude)> Calls { get; } = new();
+
+            public Exception? Throw { get; init; }
+
+            public Task<string?> GetRepresentativeImageUrlAsync(
+                string placeName, double? latitude, double? longitude, CancellationToken cancellationToken = default)
+            {
+                lock (Calls)
+                {
+                    Calls.Add((placeName, latitude, longitude));
+                }
+
+                if (Throw != null)
+                {
+                    throw Throw;
+                }
+
+                return Task.FromResult(urlsByPlaceName.GetValueOrDefault(placeName));
+            }
+        }
 
         // Anthropic Messages API 응답을 흉내 낸다. 호출 횟수와 마지막 시스템 프롬프트를 기록한다.
         private sealed class StubLlmHandler(string replyJson) : HttpMessageHandler
@@ -40,7 +65,7 @@ namespace TravelApp.WebAPI.Tests
         }
 
         private static async Task<(AiChatController Controller, StubLlmHandler Llm, int SessionId)> CreateAsync(
-            FakeNameSearchProvider provider, string llmReplyJson)
+            FakeNameSearchProvider provider, string llmReplyJson, IPlaceImageProvider? imageProvider = null)
         {
             var db = new ApplicationDbContext(new DbContextOptionsBuilder<ApplicationDbContext>()
                 .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
@@ -55,7 +80,7 @@ namespace TravelApp.WebAPI.Tests
                 .AddInMemoryCollection(new Dictionary<string, string?> { ["Anthropic:ApiKey"] = "test-key" })
                 .Build();
 
-            var controller = new AiChatController(db, new AnthropicLlmClient(new HttpClient(llm), configuration), provider,
+            var controller = new AiChatController(db, new AnthropicLlmClient(new HttpClient(llm), configuration), provider, imageProvider ?? new MockPlaceImageProvider(),
                 NullLogger<AiChatController>.Instance)
             {
                 ControllerContext = new ControllerContext
@@ -133,6 +158,79 @@ namespace TravelApp.WebAPI.Tests
             Assert.Equal(1, llm.CallCount);
             Assert.Empty(response.Recommendations);
             Assert.Equal(ChatSearchStatus.GroundingFailed, response.SearchStatus);
+        }
+
+        // ---- 추천 카드 대표 사진(ImageUrl) ----
+
+        private const string TwoCandidatesReply = """
+            {"replyText":"추천드려요","searchStatus":"success","recommendations":[
+              {"placeId":"c1","name":"진짜 식당","reason":"가까워요","suggestedStartTime":"2026-10-01T03:00:00Z","suggestedEndTime":"2026-10-01T04:00:00Z"},
+              {"placeId":"c2","name":"두번째 식당","reason":"좋아요","suggestedStartTime":"2026-10-01T05:00:00Z","suggestedEndTime":"2026-10-01T06:00:00Z"},
+              {"name":"지어낸 식당","reason":"맛있어요","suggestedStartTime":"2026-10-01T07:00:00Z","suggestedEndTime":"2026-10-01T08:00:00Z"}]}
+            """;
+
+        private static FakeNameSearchProvider TwoCandidatesProvider()
+        {
+            var provider = GangnamProvider();
+            provider.NearbyResults =
+            [
+                Place("진짜 식당", latitude: 37.4985, longitude: 127.0280),
+                Place("두번째 식당", latitude: 37.4990, longitude: 127.0285),
+            ];
+            return provider;
+        }
+
+        [Fact]
+        public async Task 검증을_통과한_추천마다_사진_provider로_ImageUrl을_채운다()
+        {
+            var images = new FakePlaceImageProvider(new() { ["진짜 식당"] = "https://img.example/real.jpg" });
+            var (controller, _, sessionId) = await CreateAsync(TwoCandidatesProvider(), TwoCandidatesReply, images);
+
+            var response = await Send(controller, sessionId, "강남 맛집");
+
+            Assert.Equal(2, response.Recommendations.Count);
+            Assert.Equal("https://img.example/real.jpg", response.Recommendations.Single(r => r.PlaceName == "진짜 식당").ImageUrl);
+            Assert.Null(response.Recommendations.Single(r => r.PlaceName == "두번째 식당").ImageUrl); // 사진 없음 -> null
+
+            // 검증에서 빠진 '지어낸 식당'은 사진을 조회하지 않고, 조회에는 검증된 좌표를 넘긴다.
+            Assert.Equal(2, images.Calls.Count);
+            Assert.DoesNotContain(images.Calls, c => c.PlaceName == "지어낸 식당");
+            Assert.Contains(images.Calls, c => c.PlaceName == "진짜 식당" && c.Latitude == 37.4985 && c.Longitude == 127.0280);
+        }
+
+        [Fact]
+        public async Task Mock_사진_provider면_추천은_그대로이고_ImageUrl만_null이다()
+        {
+            var (controller, _, sessionId) = await CreateAsync(TwoCandidatesProvider(), TwoCandidatesReply, new MockPlaceImageProvider());
+
+            var response = await Send(controller, sessionId, "강남 맛집");
+
+            Assert.Equal(2, response.Recommendations.Count);
+            Assert.All(response.Recommendations, r => Assert.Null(r.ImageUrl));
+        }
+
+        [Fact]
+        public async Task 사진_조회가_실패해도_추천은_그대로_돌려주고_ImageUrl만_null이다()
+        {
+            var images = new FakePlaceImageProvider(new()) { Throw = new HttpRequestException("image api down") };
+            var (controller, _, sessionId) = await CreateAsync(TwoCandidatesProvider(), TwoCandidatesReply, images);
+
+            var response = await Send(controller, sessionId, "강남 맛집");
+
+            Assert.Equal(2, response.Recommendations.Count);
+            Assert.All(response.Recommendations, r => Assert.Null(r.ImageUrl));
+            Assert.Equal(ChatSearchStatus.Success, response.SearchStatus);
+        }
+
+        [Fact]
+        public async Task 추천이_없으면_사진을_조회하지_않는다()
+        {
+            var images = new FakePlaceImageProvider(new());
+            var (controller, _, sessionId) = await CreateAsync(GangnamProvider(), """{"replyText":"없음","recommendations":[]}""", images);
+
+            await Send(controller, sessionId, "강남 맛집");
+
+            Assert.Empty(images.Calls);
         }
 
         [Fact]

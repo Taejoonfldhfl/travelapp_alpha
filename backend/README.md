@@ -459,13 +459,14 @@ Success:
       "placeName": "광장시장",
       "description": "다양한 길거리 음식을 맛볼 수 있는 전통 시장이에요.",
       "suggestedStartTime": "2026-09-10T10:00:00",
-      "suggestedEndTime": "2026-09-10T12:00:00"
+      "suggestedEndTime": "2026-09-10T12:00:00",
+      "imageUrl": null
     }
   ]
 }
 ```
 
-- 응답에는 사진/이미지가 포함되지 않습니다. 프론트에서 `placeName`으로 Google Places API를 별도 조회해 대표 사진을 붙입니다.
+- `imageUrl`은 LLM이 아니라 서버의 `IPlaceImageProvider`(설정 `PlaceImage:Provider`, 기본 `Mock` = 항상 null)가 검증된 추천에만 채웁니다. null이면 프론트가 `placeName`으로 Google Places API를 별도 조회하거나 "사진 없음"을 보여줍니다.
 - 현재는 고정 후보군에서 골라 응답하는 Mock 구현(`MockAiRecommendationService`)이며, `IAiRecommendationService` 인터페이스만 유지하면 실제 LLM 연동 구현체로 교체할 수 있습니다.
 
 ---

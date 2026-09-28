@@ -10,6 +10,7 @@ using SharedData.Models;
 using TravelApp.WebAPI.Controllers;
 using TravelApp.WebAPI.Data;
 using TravelApp.WebAPI.Services.Llm;
+using TravelApp.WebAPI.Services.PlaceImage;
 using TravelApp.WebAPI.Services.PlaceSearch;
 using Xunit;
 using Xunit.Abstractions;
@@ -67,7 +68,7 @@ namespace TravelApp.WebAPI.Tests.Manual
 
             using var db = CreateSeededDb();
             var logger = new CapturingLogger();
-            var controller = new AiChatController(db, llmClient, placeSearchProvider, logger)
+            var controller = new AiChatController(db, llmClient, placeSearchProvider, new MockPlaceImageProvider(), logger)
             {
                 ControllerContext = new ControllerContext { HttpContext = CreateHttpContext() }
             };

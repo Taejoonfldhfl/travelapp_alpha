@@ -21,7 +21,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import coil.compose.AsyncImage
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Place
+import coil.compose.SubcomposeAsyncImage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -235,6 +237,35 @@ fun ChatBubble(text: String, isUser: Boolean) {
     }
 }
 
+// 추천 카드 사진 영역의 대체 표시: 사진을 조회 중이면 로딩, 사진이 없거나 불러오지 못했으면 장소 아이콘 + "사진 없음".
+@Composable
+private fun PlacePhotoPlaceholder(loading: Boolean) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+        contentAlignment = Alignment.Center
+    ) {
+        if (loading) {
+            CircularProgressIndicator()
+        } else {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    imageVector = Icons.Filled.Place,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(40.dp)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "사진 없음",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
 @Composable
 fun RecommendationCardView(
     card: ChatMessage.RecommendationCard,
@@ -247,29 +278,17 @@ fun RecommendationCardView(
                     .fillMaxWidth()
                     .height(160.dp)
             ) {
-                if (card.photoUrl != null) {
-                    AsyncImage(
+                when {
+                    card.photoUrl != null -> SubcomposeAsyncImage(
                         model = card.photoUrl,
                         contentDescription = card.placeName,
                         modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
+                        contentScale = ContentScale.Crop,
+                        loading = { PlacePhotoPlaceholder(loading = true) },
+                        // URL은 있는데 이미지를 못 불러온 경우(만료/깨진 링크)도 "사진 없음"으로 보여준다.
+                        error = { PlacePhotoPlaceholder(loading = false) }
                     )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (card.photoLoading) {
-                            CircularProgressIndicator()
-                        } else {
-                            Text(
-                                text = "사진 없음",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
+                    else -> PlacePhotoPlaceholder(loading = card.photoLoading)
                 }
             }
 

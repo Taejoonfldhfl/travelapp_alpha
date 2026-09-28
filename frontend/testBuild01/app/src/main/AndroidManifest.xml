@@ -43,6 +43,15 @@
             </intent-filter>
         </activity>
 
+        <!-- FCM: google-services.json이 없으면 Firebase가 초기화되지 않아 이 서비스는 그냥 호출되지 않는다. -->
+        <service
+            android:name=".notification.FcmMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <receiver
             android:name=".notification.TicketAlarmReceiver"
             android:exported="false" />

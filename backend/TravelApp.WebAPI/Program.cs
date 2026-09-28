@@ -1,13 +1,17 @@
+using FirebaseAdmin;
+using Google.Apis.Auth.OAuth2;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
 using TravelApp.WebAPI.Data;
+using TravelApp.WebAPI.Services.Expenses;
 using TravelApp.WebAPI.Services.HotelInfo;
 using TravelApp.WebAPI.Services.Llm;
 using TravelApp.WebAPI.Services.PlaceImage;
 using TravelApp.WebAPI.Services.PlaceSearch;
+using TravelApp.WebAPI.Services.Push;
 using TravelApp.WebAPI.Services.RouteOptimization;
 
 namespace TravelApp.WebAPI
@@ -25,8 +29,53 @@ namespace TravelApp.WebAPI
             builder.Services.AddControllers()
                 .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(
                     new System.Text.Json.Serialization.JsonStringEnumConverter()));
-            builder.Services.AddSingleton<TravelApp.WebAPI.Services.Expenses.IPushNotifier,
-                TravelApp.WebAPI.Services.Expenses.LogPushNotifier>();
+
+            // 서버발 푸시: 설정("PushNotification:Provider")으로 Log(기본, 콘솔 로그만)/Fcm 전환.
+            // Fcm을 선택했는데 서비스 계정 키(Fcm:ServiceAccountJson)가 없거나 초기화에 실패하면
+            // 앱을 죽이지 않고 Log로 폴백한다. 경고는 app.Logger가 준비된 뒤 남긴다(아래 참고).
+            string? fcmFallbackReason = null;
+            var pushProviderName = builder.Configuration["PushNotification:Provider"] ?? "Log";
+            if (string.Equals(pushProviderName, "Fcm", StringComparison.OrdinalIgnoreCase))
+            {
+                string serviceAccountJson = builder.Configuration["Fcm:ServiceAccountJson"] ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(serviceAccountJson) ||
+                    serviceAccountJson.Contains(Services.SecretsConfigurationCheck.PlaceholderMarker, StringComparison.Ordinal))
+                {
+                    fcmFallbackReason = "Fcm:ServiceAccountJson이 설정되지 않았습니다";
+                }
+                else
+                {
+                    try
+                    {
+                        if (FirebaseApp.DefaultInstance == null)
+                        {
+                            FirebaseApp.Create(new AppOptions
+                            {
+                                Credential = CredentialFactory.FromJson<ServiceAccountCredential>(serviceAccountJson).ToGoogleCredential()
+                            });
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        fcmFallbackReason = $"Firebase 초기화에 실패했습니다({ex.Message})";
+                    }
+                }
+            }
+            else if (!string.Equals(pushProviderName, "Log", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"알 수 없는 PushNotification:Provider '{pushProviderName}'입니다. 현재 지원: Log, Fcm");
+            }
+
+            if (string.Equals(pushProviderName, "Fcm", StringComparison.OrdinalIgnoreCase) && fcmFallbackReason == null)
+            {
+                builder.Services.AddSingleton<IFcmSender, FirebaseFcmSender>();
+                builder.Services.AddScoped<IPushNotifier, FcmPushNotifier>();
+            }
+            else
+            {
+                builder.Services.AddSingleton<IPushNotifier, LogPushNotifier>();
+            }
 
             // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
             // builder.Services.AddOpenApi();

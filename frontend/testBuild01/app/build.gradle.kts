@@ -9,6 +9,14 @@ val localProperties = Properties()
 localProperties.load(project.rootProject.file("local.properties").inputStream())
 val mapsApiKey = localProperties.getProperty("google_maps_api_key")?:""
 
+// FCM(푸시 알림)용 google-services.json이 이 모듈 바로 아래(app/google-services.json)에 있을 때만
+// google-services 플러그인을 적용한다. 파일이 없으면(Firebase 프로젝트 설정 전) 이 플러그인 없이도
+// 빌드는 정상적으로 되고, FCM 관련 기능만 런타임에 동작하지 않는다.
+val hasGoogleServicesJson = file("google-services.json").exists()
+if (hasGoogleServicesJson) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 android {
     namespace = "com.example.testbuild01"
     compileSdk {
@@ -92,6 +100,11 @@ dependencies {
     implementation(libs.zxing.core)
     // 호텔 예약 딥링크(Custom Tabs)
     implementation(libs.androidx.browser)
+    // FCM(푸시 알림). google-services.json이 없어도 컴파일은 되며, 런타임 초기화만 실패한다
+    // (TokenRegistrar/FcmService에서 예외를 잡아 앱이 죽지 않게 처리).
+    implementation(platform("com.google.firebase:firebase-bom:34.19.0"))
+    // 34.x BOM부터 -ktx 아티팩트가 폐기되고 코틀린 확장이 기본 아티팩트에 합쳐졌다.
+    implementation("com.google.firebase:firebase-messaging")
     // 가계부: 영수증 OCR(ML Kit 한국어 텍스트 인식), 통계 차트(Vico), ViewModel (CameraX 는 위 선언 재사용)
     implementation("com.google.mlkit:text-recognition-korean:16.0.1")
     implementation("com.patrykandpatrick.vico:compose-m3:2.1.3")

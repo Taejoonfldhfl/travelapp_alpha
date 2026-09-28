@@ -486,3 +486,7 @@ appsettings.Development.json
 appsettings.*.local.json
 secrets.json
 *.secrets.json
+
+# FCM: Firebase 콘솔에서 프로젝트별로 발급받는 파일이라 커밋하지 않는다. 없어도 앱 빌드는 된다
+# (frontend/testBuild01/app/google-services.json에 직접 받아서 넣으면 FCM이 동작한다).
+google-services.json

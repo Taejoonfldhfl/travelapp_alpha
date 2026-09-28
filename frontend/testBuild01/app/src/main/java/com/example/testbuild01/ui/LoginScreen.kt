@@ -12,6 +12,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
 import com.example.testbuild01.data.local.TokenManager
+import com.example.testbuild01.notification.FcmTokenRegistrar
 
 import com.example.testbuild01.data.model.LoginRequest
 import com.example.testbuild01.data.model.LoginResponse
@@ -70,6 +71,8 @@ fun LoginScreen(onLoginSuccess: () -> Unit,
                             if (loginResponse != null) {
                                 val tokenManager = TokenManager(context)
                                 tokenManager.saveToken(loginResponse.token)
+                                // 로그인 전에는 인증이 없어 등록이 401로 끝났을 수 있으니 로그인 직후 다시 등록한다.
+                                FcmTokenRegistrar.registerCurrentToken(context)
 
                                 Toast.makeText(
                                     context,

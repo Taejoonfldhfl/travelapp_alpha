@@ -99,6 +99,32 @@ namespace TravelApp.WebAPI.Controllers
             });
         }
 
+        // 4. FCM 디바이스 토큰 등록/갱신 — 사용자당 최신 토큰 1개만 유지(upsert).
+        [HttpPost("device-token")]
+        [Authorize]
+        public async Task<IActionResult> UpsertDeviceToken(DeviceTokenUpsertDto request)
+        {
+            if (string.IsNullOrWhiteSpace(request.Token))
+            {
+                return BadRequest("token은 필수입니다.");
+            }
+
+            int userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+            var existing = await _context.DeviceTokens.FirstOrDefaultAsync(d => d.UserId == userId);
+            if (existing == null)
+            {
+                _context.DeviceTokens.Add(new DeviceToken { UserId = userId, Token = request.Token });
+            }
+            else
+            {
+                existing.Token = request.Token;
+                existing.UpdatedAt = DateTime.UtcNow;
+            }
+
+            await _context.SaveChangesAsync();
+            return NoContent();
+        }
+
         private string CreateToken(User user)
         {
             var claims = new List<Claim>

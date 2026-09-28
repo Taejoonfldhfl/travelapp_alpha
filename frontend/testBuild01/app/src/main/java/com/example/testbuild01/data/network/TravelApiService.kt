@@ -16,6 +16,7 @@ import com.example.testbuild01.data.model.AiChatRequest
 import com.example.testbuild01.data.model.AiChatResponse
 import com.example.testbuild01.data.model.AiChatSessionResponse
 import com.example.testbuild01.data.model.HotelInfoItem
+import com.example.testbuild01.data.model.DeviceTokenRequest
 
 import com.example.testbuild01.data.model.BudgetSummary
 import com.example.testbuild01.data.model.BudgetUpdateRequest
@@ -41,6 +42,10 @@ interface TravelApiService {
 
     @POST("api/User/register") // 서버의 회원가입 엔드포인트 주소 확인!
     fun register(@Body request: RegisterRequest): Call<RegisterResponse>
+
+    // FCM 디바이스 토큰 등록/갱신. google-services.json이 없거나 토큰 발급에 실패하면 호출 자체를 하지 않는다.
+    @POST("api/User/device-token")
+    suspend fun registerDeviceToken(@Body request: DeviceTokenRequest): Response<Unit>
 
     @GET("api/Trip")
     fun getTrips(): Call<List<TripResponse>>

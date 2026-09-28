@@ -15,6 +15,8 @@ namespace TravelApp.WebAPI.Services
             ("Jwt:Key", "Jwt__Key", null),
             ("TourApi:ServiceKey", "TourApi__ServiceKey",
                 c => string.Equals(c["HotelInfo:Provider"], "TourApi", StringComparison.OrdinalIgnoreCase)),
+            ("Fcm:ServiceAccountJson", "Fcm__ServiceAccountJson",
+                c => string.Equals(c["PushNotification:Provider"], "Fcm", StringComparison.OrdinalIgnoreCase)),
         ];
 
         // 값이 없거나 플레이스홀더가 남아 있는 시크릿의 경고 문구 목록.

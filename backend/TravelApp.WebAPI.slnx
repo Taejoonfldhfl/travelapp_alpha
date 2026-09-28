@@ -1,5 +1,6 @@
 <Solution>
   <Project Path="SharedData/SharedData.csproj" />
   <Project Path="TravelApp.Expense.Tests/TravelApp.Expense.Tests.csproj" />
+  <Project Path="TravelApp.WebAPI.Tests/TravelApp.WebAPI.Tests.csproj" />
   <Project Path="TravelApp.WebAPI/TravelApp.WebAPI.csproj" />
 </Solution>

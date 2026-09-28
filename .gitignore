@@ -480,3 +480,9 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# 로컬 시크릿/개발 설정 (실제 값은 dotnet user-secrets 또는 환경변수로 관리)
+appsettings.Development.json
+appsettings.*.local.json
+secrets.json
+*.secrets.json

@@ -78,6 +78,8 @@ dotnet user-secrets set "Anthropic:ApiKey" "발급받은_키"
 dotnet ef database update
 ```
 
+로컬 개발 시 `ConnectionStrings:DefaultConnection`, `Jwt:Key`, `Tmap:AppKey` 같은 시크릿은 `appsettings.json`(플레이스홀더만 있음)을 고치지 말고 `dotnet user-secrets set "<키>" "<값>"`으로 설정하세요. 운영에서는 환경변수(`ConnectionStrings__DefaultConnection`, `Jwt__Key` 등)가 우선하며, 플레이스홀더가 남아 있으면 시작 시 경고 로그가 남습니다.
+
 **프론트엔드**
 
 `local.properties`에 `google_maps_api_key`가 등록되어 있어야 하며, 해당 키에 **Maps SDK for Android**와 **Places API**가 모두 활성화되어 있어야 합니다.

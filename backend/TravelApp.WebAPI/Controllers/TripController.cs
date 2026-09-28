@@ -5,6 +5,7 @@ using SharedData.DTOs;
 using SharedData.Models;
 using System.Security.Claims;
 using TravelApp.WebAPI.Data;
+using TravelApp.WebAPI.Services;
 
 namespace TravelApp.WebAPI.Controllers
 {
@@ -217,7 +218,8 @@ namespace TravelApp.WebAPI.Controllers
 
             // 이메일로 사용자 조회
             var targetUser = await _context.Users
-                .FirstOrDefaultAsync(u => u.Email == request.Email);
+                .WhereEmailMatches(request.Email)
+                .FirstOrDefaultAsync();
 
             if (targetUser == null)
             {

@@ -9,6 +9,7 @@ using System.Text;
 using SharedData.DTOs;
 using SharedData.Models;
 using TravelApp.WebAPI.Data;
+using TravelApp.WebAPI.Services;
 using Microsoft.AspNetCore.Authorization;
 
 
@@ -33,7 +34,7 @@ namespace TravelApp.WebAPI.Controllers
         public async Task<ActionResult<UserResponseDto>> Register(UserRegisterDto request)
         {
             // 이메일 중복 체크
-            if (await _context.Users.AnyAsync(u => u.Email == request.Email)) 
+            if (await _context.Users.WhereEmailMatches(request.Email).AnyAsync())
             {
                 return BadRequest("이미 존재하는 계정입니다.");
             }
@@ -43,7 +44,7 @@ namespace TravelApp.WebAPI.Controllers
 
             var user = new User
             {
-                Email = request.Email,
+                Email = request.Email.NormalizeEmail(),
                 PasswordHash = passwordHash,
                 Nickname = request.Nickname
             };
@@ -67,7 +68,7 @@ namespace TravelApp.WebAPI.Controllers
         public async Task<ActionResult<UserResponseDto>> Login(UserLoginDto request)
         {
             // 이메일로 사용자 조회
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
+            var user = await _context.Users.WhereEmailMatches(request.Email).FirstOrDefaultAsync();
             if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
             {
                 return Unauthorized("이메일 또는 비밀번호가 일치하지 않습니다.");

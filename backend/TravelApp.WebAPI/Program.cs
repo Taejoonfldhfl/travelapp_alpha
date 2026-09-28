@@ -14,6 +14,8 @@ namespace TravelApp.WebAPI
     {
         public static void Main(string[] args)
         {
+            // 설정 우선순위(뒤가 우선): appsettings.json(플레이스홀더) < user-secrets(Development 환경) < 환경변수.
+            // CreateBuilder의 기본 동작이 이 순서라 별도 등록은 하지 않는다. 시크릿 검사는 아래 SecretsConfigurationCheck 참고.
             var builder = WebApplication.CreateBuilder(args);
 
             // Add services to the container.
@@ -108,6 +110,12 @@ namespace TravelApp.WebAPI
                     };
                 });
             var app = builder.Build();
+
+            // 플레이스홀더 시크릿이 그대로 남아 있으면 시작 시점에 경고한다(운영 배포 실수 방지).
+            foreach (var warning in Services.SecretsConfigurationCheck.FindPlaceholderSecrets(app.Configuration))
+            {
+                app.Logger.LogWarning("{SecretWarning}", warning);
+            }
 
             // Configure the HTTP request pipeline.
             if (app.Environment.IsDevelopment())

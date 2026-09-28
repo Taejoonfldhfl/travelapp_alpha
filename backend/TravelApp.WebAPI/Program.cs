@@ -4,6 +4,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
 using TravelApp.WebAPI.Data;
+using TravelApp.WebAPI.Services.HotelInfo;
 using TravelApp.WebAPI.Services.Llm;
 using TravelApp.WebAPI.Services.PlaceImage;
 using TravelApp.WebAPI.Services.PlaceSearch;
@@ -104,6 +105,24 @@ namespace TravelApp.WebAPI
                     $"알 수 없는 PlaceImage:Provider '{placeImageProviderName}'입니다. 현재 지원: Mock");
             }
             builder.Services.AddSingleton<IPlaceImageProvider, MockPlaceImageProvider>();
+
+            // 숙박시설 정보(TourAPI 4.0): 설정("HotelInfo:Provider")으로 교체. TourAPI 인증키가 없는 동안은 Mock이 기본값이다.
+            // 인증키(TourApi:ServiceKey)는 다른 시크릿과 같은 순서(환경변수 > user-secrets > appsettings.json)로 읽는다.
+            var hotelInfoProviderName = builder.Configuration["HotelInfo:Provider"] ?? "Mock";
+            if (string.Equals(hotelInfoProviderName, "TourApi", StringComparison.OrdinalIgnoreCase))
+            {
+                builder.Services.AddHttpClient<TourApiHotelInfoProvider>(client => client.Timeout = TimeSpan.FromSeconds(10));
+                builder.Services.AddScoped<IHotelInfoProvider>(sp => sp.GetRequiredService<TourApiHotelInfoProvider>());
+            }
+            else if (string.Equals(hotelInfoProviderName, "Mock", StringComparison.OrdinalIgnoreCase))
+            {
+                builder.Services.AddSingleton<IHotelInfoProvider, MockHotelInfoProvider>();
+            }
+            else
+            {
+                throw new InvalidOperationException(
+                    $"알 수 없는 HotelInfo:Provider '{hotelInfoProviderName}'입니다. 현재 지원: Mock, TourApi");
+            }
 
             builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 .AddJwtBearer(options =>

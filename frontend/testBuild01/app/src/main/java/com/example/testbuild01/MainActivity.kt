@@ -33,6 +33,7 @@ import com.example.testbuild01.data.repository.TicketDraft
 import com.example.testbuild01.ui.aichat.AiChatScreen
 import com.example.testbuild01.ui.hotel.HotelConfirmationScannerScreen
 import com.example.testbuild01.ui.hotel.HotelDetailReviewScreen
+import com.example.testbuild01.ui.hotel.HotelListScreen
 import com.example.testbuild01.ui.hotel.HotelManualEntryScreen
 import com.example.testbuild01.ui.hotel.HotelSearchScreen
 import com.example.testbuild01.data.hotel.HotelOcrCandidate
@@ -171,7 +172,14 @@ fun TravelApp(pendingTicketId: MutableState<Long?> = mutableStateOf(null)) {
                 },
                 onExpenseSelected = {
                     navController.navigate("expense_list/$tripId/${Uri.encode(projectName)}")
+                },
+                onHotelListSelected = {
+                    navController.navigate("hotel_list")
                 })
+        }
+
+        composable("hotel_list") {
+            HotelListScreen(onBack = { navController.popBackStack() })
         }
         composable(
             route = "expense_list/{tripId}/{title}",

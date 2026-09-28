@@ -15,6 +15,7 @@ import com.example.testbuild01.data.model.RouteOptimizationResult
 import com.example.testbuild01.data.model.AiChatRequest
 import com.example.testbuild01.data.model.AiChatResponse
 import com.example.testbuild01.data.model.AiChatSessionResponse
+import com.example.testbuild01.data.model.HotelInfoItem
 
 import com.example.testbuild01.data.model.BudgetSummary
 import com.example.testbuild01.data.model.BudgetUpdateRequest
@@ -176,4 +177,15 @@ interface TravelApiService {
 
     @GET("api/Trip/{tripId}/settlement")
     suspend fun getSettlement(@Path("tripId") tripId: Int): Response<List<SettlementTransfer>>
+
+    // 숙박시설 정보 검색(TourAPI). keyword / areaCode / lat+lng 중 하나만 채운다(null 파라미터는 전송되지 않음).
+    @GET("api/HotelInfo/search")
+    suspend fun searchHotelInfo(
+        @Query("keyword") keyword: String? = null,
+        @Query("areaCode") areaCode: String? = null,
+        @Query("lat") latitude: Double? = null,
+        @Query("lng") longitude: Double? = null,
+        @Query("radius") radiusMeters: Int? = null,
+        @Query("page") page: Int = 1
+    ): Response<List<HotelInfoItem>>
 }

@@ -29,7 +29,8 @@ fun MapScreen(
     onPlaceRecommendationSelected: () -> Unit = {},
     onTicketScanSelected: () -> Unit = {},
     onTicketListSelected: () -> Unit = {},
-    onExpenseSelected: () -> Unit = {}) {
+    onExpenseSelected: () -> Unit = {},
+    onHotelListSelected: () -> Unit = {}) {
     val context = LocalContext.current
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
     
@@ -112,6 +113,16 @@ fun MapScreen(
                 .padding(top = 50.dp, start = 16.dp)
         ) {
             Text("내 티켓")
+        }
+
+        // 숙소 정보 찾기(TourAPI) 바로가기
+        FilledTonalButton(
+            onClick = onHotelListSelected,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 50.dp, end = 16.dp)
+        ) {
+            Text("숙소 찾기")
         }
 
         // Bottom Bar with 4 buttons

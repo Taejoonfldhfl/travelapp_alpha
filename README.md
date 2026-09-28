@@ -86,6 +86,7 @@ dotnet ef database update
 
 - 서버는 일정 **기간**(날짜) 밖 등록만 막고, 같은 날 **시간대 겹침**은 검증하지 않습니다. 현재는 시스템 프롬프트로만 겹치지 않게 유도하고 있습니다.
 - `TripController.UpdateTrip`의 라우트가 `[HttpPut("id")]`로 되어있어(`{id}`가 아님) 여행 정보 수정 API가 정상 동작하지 않습니다. 이 브랜치 범위 밖의 기존 이슈입니다.
+- Tmap POI 응답에는 휴관/임시휴업 여부 필드가 없어 `PlaceRecommendationGrounder.IsOperatingAsOf`가 이를 감지하지 못합니다(예: 국립한글박물관 휴관 사례). 별도 데이터 소스(네이버 플레이스, 공공 API 등) 연동이 필요한 별개 작업으로 분리했습니다.
 
 ## 테스트
 

@@ -207,6 +207,54 @@ namespace TravelApp.WebAPI.Tests
             Assert.All(result.Candidates, c => Assert.NotNull(c.DistanceMeters));
         }
 
+        // Manual 케이스 9("이 근처에 뭐 볼만한 거 있어?") 재현: 일정에 좌표가 있어도 TripArea로 새지 않고 GPS 기준 관광명소 검색이다.
+        [Fact]
+        public async Task 케이스9_이_근처는_일정_좌표가_있어도_GPS를_중심으로_관광명소를_검색한다()
+        {
+            var provider = ProviderWithGangnam();
+            provider.NearbyResults = [Place("흥례문", latitude: 37.5780, longitude: 126.9770)];
+            var schedules = new List<Schedule>
+            {
+                new() { Title = "해운대", Latitude = 35.1587, Longitude = 129.1604, StartTime = Now, EndTime = Now.AddHours(1) }
+            };
+
+            var result = await Search(provider, "이 근처에 뭐 볼만한 거 있어?", schedules: schedules);
+
+            Assert.Equal(ChatSearchStatus.Success, result.Status);
+            Assert.Equal(SearchAnchorSource.CurrentLocation, result.Anchor!.Source);
+            Assert.All(provider.NearbyRequests, request =>
+            {
+                Assert.Equal(GpsLatitude, request.Latitude);
+                Assert.Equal(GpsLongitude, request.Longitude);
+                Assert.Equal(PlaceCategory.Attraction, request.Category);
+            });
+        }
+
+        [Fact]
+        public async Task 케이스9_GPS가_null이면_LocationUnavailable로_끝나고_검색하지_않는다()
+        {
+            var provider = ProviderWithGangnam();
+
+            var result = await Search(provider, "이 근처에 뭐 볼만한 거 있어?", withGps: false);
+
+            Assert.Equal(ChatSearchStatus.LocationUnavailable, result.Status);
+            Assert.Empty(provider.NearbyRequests);
+        }
+
+        [Fact]
+        public async Task 케이스9_GPS는_있는데_후보가_0건이면_반경을_2km로_넓힌_뒤_NoCandidates로_끝난다()
+        {
+            var provider = ProviderWithGangnam();
+
+            var result = await Search(provider, "이 근처에 뭐 볼만한 거 있어?");
+
+            Assert.Equal(ChatSearchStatus.NoCandidates, result.Status);
+            Assert.Equal(SearchAnchorSource.CurrentLocation, result.Anchor!.Source);
+            Assert.Equal([1000, 2000], provider.NearbyRequests.Select(r => r.RadiusMeters).ToArray());
+            Assert.Equal(2000, result.RadiusMeters);
+            Assert.Equal("현재 위치 주변에서 조건에 맞는 관광지를 찾지 못했어요.", result.UserMessage);
+        }
+
         [Fact]
         public async Task 여행_일반추천은_GPS보다_일정_지역을_기준으로_한다()
         {

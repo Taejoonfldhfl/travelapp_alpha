@@ -218,6 +218,9 @@ namespace TravelApp.WebAPI.Services
         // asOfUtc(질문한 시점) 기준으로 이 장소를 추천 후보로 써도 되는지: 폐업이 확인됐으면 항상 제외하고,
         // 영업 확인 시점 정보가 있는데 3개월보다 오래됐으면 역시 제외한다. 영업 정보가 아예 없으면(Unknown)
         // 후보에서 빼지는 않는다 — 단, 이는 "영업 중"이라는 뜻이 아니다(GetOperatingStatus는 Unknown을 돌려준다).
+        // TODO(향후 작업): Tmap POI 응답에는 휴관/임시휴업 여부 필드가 없어 IsOperatingAsOf가
+        // 이를 감지하지 못함(예: 국립한글박물관 휴관 사례). 별도 데이터 소스(예: 네이버 플레이스,
+        // 공공API) 연동이 필요한 별개 작업으로 분리함.
         public static bool IsOperatingAsOf(PlaceSearchResultDto place, DateTime asOfUtc)
         {
             if (place.IsPermanentlyClosed || place.OperatingStatus == PlaceOperatingStatus.Closed)

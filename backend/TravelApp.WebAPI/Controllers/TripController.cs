@@ -128,7 +128,7 @@ namespace TravelApp.WebAPI.Controllers
         }
 
         // 4. 여행 수정
-        [HttpPut("id")]
+        [HttpPut("{id}")]
         public async Task<ActionResult<TripResponseDto>> UpdateTrip(int id,TripUpdateDto request)
         {
             int userId = int.Parse(

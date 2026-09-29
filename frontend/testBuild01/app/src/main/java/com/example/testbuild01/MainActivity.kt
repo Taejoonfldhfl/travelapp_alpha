@@ -2,6 +2,7 @@ package com.example.testbuild01
 
 import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -12,8 +13,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import com.example.testbuild01.data.local.TokenManager
+import com.example.testbuild01.data.network.AuthEvents
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -87,6 +91,18 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun TravelApp(pendingTicketId: MutableState<Long?> = mutableStateOf(null)) {
     val navController = rememberNavController()
+    val context = LocalContext.current
+    val tokenManager = remember { TokenManager(context) }
+    // 유효한(만료 안 된) 토큰이 있으면 바로 프로젝트 선택으로 건너뛰고, 없거나 만료됐으면
+    // 남아있는 토큰을 지우고 로그인부터 시작한다. remember로 감싸 최초 1회만 판단한다.
+    val startDestination = remember {
+        if (tokenManager.isLoggedIn()) {
+            "project_selection"
+        } else {
+            tokenManager.clearToken()
+            "login"
+        }
+    }
     // 스캔 → 수동 입력 → 목록이 상태를 공유하도록 Activity 범위로 둔다.
     val ticketViewModel: TicketViewModel = viewModel(
         viewModelStoreOwner = LocalContext.current as ComponentActivity,
@@ -97,11 +113,25 @@ fun TravelApp(pendingTicketId: MutableState<Long?> = mutableStateOf(null)) {
         viewModelStoreOwner = LocalContext.current as ComponentActivity
     )
 
-    NavHost(navController = navController, startDestination = "login") {
+    // 인증이 필요한 요청이 401을 받아 토큰이 지워졌다는 알림을 받으면, 토스트를 띄우고 로그인
+    // 화면으로 되돌린다. popUpTo(0)으로 백스택을 전부 비워 뒤로가기로 이전 화면이 보이지 않게 한다.
+    LaunchedEffect(Unit) {
+        AuthEvents.sessionExpired.collect {
+            Toast.makeText(context, "로그인이 만료되었습니다. 다시 로그인해 주세요.", Toast.LENGTH_LONG).show()
+            navController.navigate("login") {
+                popUpTo(0) { inclusive = true }
+            }
+        }
+    }
+
+    NavHost(navController = navController, startDestination = startDestination) {
         composable("login") {
             LoginScreen(
                 onLoginSuccess = {
-                    navController.navigate("project_selection")
+                    // 뒤로가기를 눌러도 로그인 화면으로 돌아가지 않도록 백스택에서 지운다.
+                    navController.navigate("project_selection") {
+                        popUpTo("login") { inclusive = true }
+                    }
                 },
                 onRegisterSelected = {
                     navController.navigate("register")
@@ -125,6 +155,11 @@ fun TravelApp(pendingTicketId: MutableState<Long?> = mutableStateOf(null)) {
                 },
                 onTicketsSelected = {
                     navController.navigate("ticket_list")
+                },
+                onLogout = {
+                    navController.navigate("login") {
+                        popUpTo(0) { inclusive = true }
+                    }
                 })
         }
         composable("create_trip") {

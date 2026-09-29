@@ -1,74 +1,62 @@
-# AI 장소추천 챗봇 (`feature/ai-chatbot`)
+# TravelApp
 
-여행 지도 화면의 **"장소추천"** 버튼으로 진입하는 AI 챗봇 기능입니다. 이미 등록된 여행 일정을 참고해, 대화로 받은 사용자 취향에 맞는 장소를 추천하고 일정에 바로 추가할 수 있습니다.
+여행 일정·경로·숙소·티켓·가계부를 한 앱에서 관리하고, AI 챗봇이 대화로 근처 장소를 추천해주는 여행 관리 앱입니다. Android(Kotlin/Compose) 클라이언트와 ASP.NET Core(.NET 10) 백엔드로 구성되어 있으며, 현재 시연용 개발 단계입니다.
 
-## 동작 흐름
+## 주요 기능
 
-1. 지도 화면에서 **장소추천** 버튼 탭 → 챗봇 세션 생성
-2. 사용자가 대화로 취향을 말함 (예: "조용한 카페 추천해줘")
-3. AI가 해당 여행의 **기존 일정과 겹치지 않는 시간대**로 장소를 1~3개 추천
-4. 추천 카드에 **장소명 + 대표 사진 + "일정에 추가" 버튼**이 함께 표시됨
-5. "일정에 추가" 클릭 → **방문 시간 입력 다이얼로그**(AI 제안 시간이 기본값으로 채워짐) → 확인 시 기존 일정 생성 API로 저장
+### 여행 · 일정
+- 여행 생성/멤버 초대, 일정 CRUD
+- 같은 여행 일정끼리 시간대 겹침 검증
+- **경로 최적화**: Held-Karp(정확해, N≤10) → OR-Tools(짧은 시간예산) → 유전 알고리즘 순 하이브리드 TSP. 호텔 체크인처럼 "이 시각 이전엔 방문 불가"한 앵커 제약을 후처리로 반영
+- **Stage 2 — 우선순위 기반 시간예산 스킵**: 하루 일정이 배정 가능한 시간을 넘을 것으로 예상되면 우선순위 낮은(비필수) 일정부터 자동 제외하고 재계산. 호텔 체크인 등 앵커는 우선순위와 무관하게 항상 포함. 전부 필수라 뺄 게 없으면 스킵 없이 "시간 초과" 경고만 반환
 
-## 백엔드 (`backend/`)
+### AI 챗봇 장소추천
+- 지도 화면의 "장소추천" 버튼으로 진입, 대화로 받은 취향에 맞는 장소를 1~3개 추천
+- 추천은 반드시 실제 검색 API(Tmap) 후보 목록 안에서만 고르도록 서버가 검증(그라운딩) — 위치를 특정 못 하거나 후보가 없으면 LLM을 부르지 않고 이유를 바로 답해 환각을 방지
+- 추천 카드에는 서버가 검증한 대표 사진(`IPlaceImageProvider`, 실패 시 Google Places 폴백 → 플레이스홀더)이 함께 표시되고, "일정에 추가"로 바로 저장 가능
 
-| 구성 요소 | 위치 | 설명 |
-|---|---|---|
-| `ChatSession` 엔티티 | `SharedData/Models/ChatSession.cs` | 대화 세션 저장 (TripId, UserId, 대화 이력 JSON) |
-| `AiChatController` | `TravelApp.WebAPI/Controllers/AiChatController.cs` | 세션 생성, 메시지 전송 API |
-| `AnthropicLlmClient` | `TravelApp.WebAPI/Services/Llm/AnthropicLlmClient.cs` | Anthropic Messages API 직접 호출 (HttpClient) |
-| `AiChatPromptBuilder` | `TravelApp.WebAPI/Services/AiChatPromptBuilder.cs` | 여행 정보 + 기존 일정을 시스템 프롬프트로 구성 |
-| `AnthropicStartupValidator` | `TravelApp.WebAPI/Services/Llm/AnthropicStartupValidator.cs` | API 키 미설정 시 앱 시작 시점에 즉시 실패 처리 |
+### 숙소(호텔)
+- 한국관광공사 TourAPI로 키워드/지역/현재위치 기반 숙박시설 검색
+- 호텔 확인서 사진을 OCR로 스캔해 체크인/체크아웃/예약번호 등을 자동 인식(확인/수정 화면에서 검토 후 저장)
+- 예약을 여행 일정에 자동 연동(체크인/체크아웃을 경로 최적화 앵커로 사용)
+- 아고다 · 트립닷컴 예약 페이지로 바로 이동하는 딥링크(제휴 링크 아님, 일반 검색 페이지 연결)
 
-### API
+### 티켓(항공권 · 버스표)
+- 바코드/QR 스캔으로 등록(카메라 미리보기 + ML Kit 바코드 인식)
+- 바코드가 없거나 인식이 안 될 때를 위한 문자 인식(OCR) 대안 경로 — 편명 패턴이 있으면 항공, "고속버스" 등 키워드가 있으면 버스로 자동 판별
+- 상세 정보는 로컬에 암호화 저장(Tink), 출발 전/체크아웃 무료취소 마감 알림
+
+### 가계부(지출 관리)
+- 지출 등록/수정/삭제, 더치페이 분담(균등/커스텀 금액), 카테고리별 지출 비율
+- 예산 설정 및 "예산 이내 → 초과"로 바뀌는 순간에만 알림(이미 초과 상태에서 추가 지출해도 중복 알림 없음)
+- 더치페이 정산: 최소 송금 횟수로 계산, 확정(finalize) 시 스냅샷으로 저장해 이후 지출이 바뀌어도 이미 공유한 정산 내용은 유지. 지출이 그대로면 재확정해도 새 스냅샷/알림 없이 기존 확정본 반환(멱등)
+
+### 로그인 · 인증
+- 회원가입/로그인, JWT 기반 인증
+- 자동 로그인: 저장된 토큰이 있고 만료되지 않았을 때만 로그인 상태로 판단(순수 Kotlin으로 구현한 JWT exp 파서, Android API 버전에 의존하지 않음)
+- 인증이 필요한 요청이 401을 받으면 자동으로 로그아웃 처리 후 안내와 함께 로그인 화면으로 이동
+- 로그아웃 시 서버에 등록된 FCM 디바이스 토큰을 먼저 정리
+- 같은 기기에서 계정을 바꿔 로그인해도 FCM 토큰이 이전 계정에 남지 않도록 자동 이전
+
+### 알림(FCM)
+- 예산 초과, 정산 결과 도착, 티켓 알림 등을 서버에서 실제 FCM 푸시로 발송(계정당 디바이스 토큰 1개 유지)
+
+## 기술 스택
+
+**백엔드** — ASP.NET Core(.NET 10), Entity Framework Core + PostgreSQL, JWT 인증, Google OR-Tools(경로 최적화), Anthropic Claude API(장소추천), Firebase Admin SDK(FCM), 한국관광공사 TourAPI, Tmap(SK Open API, 경로/거리)
+
+**프론트엔드** — Android(Kotlin, Jetpack Compose), Retrofit, Room, ML Kit(텍스트 인식·바코드 인식), CameraX, Firebase Cloud Messaging, Google Maps/Places SDK
+
+## 프로젝트 구조
 
 ```
-POST /api/Trip/{tripId}/AiChat/sessions
-POST /api/Trip/{tripId}/AiChat/sessions/{sessionId}/messages
+backend/
+  TravelApp.WebAPI/        # API 서버 본체
+  TravelApp.WebAPI.Tests/  # 백엔드 유닛/컨트롤러 테스트
+  TravelApp.Expense.Tests/ # 가계부 도메인 테스트
+  SharedData/              # DTO/모델 (WebAPI와 테스트 프로젝트가 공유)
+frontend/testBuild01/      # Android 앱 (Kotlin, Jetpack Compose)
 ```
-
-둘 다 `[Authorize]` + 여행 멤버 검증(`IsTripMember`)을 거칩니다. 두 번째 엔드포인트는 세션 소유자 본인만 호출 가능합니다.
-
-### 추천 응답 스키마
-
-```json
-{
-  "replyText": "string",
-  "recommendations": [
-    {
-      "placeName": "string",
-      "description": "string",
-      "suggestedStartTime": "yyyy-MM-ddTHH:mm:ssZ",
-      "suggestedEndTime": "yyyy-MM-ddTHH:mm:ssZ",
-      "imageUrl": "string | null"
-    }
-  ]
-}
-```
-
-일정 저장은 이 응답을 그대로 쓰지 않고, 사용자가 시간을 확인/수정한 뒤 **기존 `POST /api/Trip/{tripId}/Schedule` API**를 호출하는 방식입니다. 새 저장 로직을 추가하지 않고 기존 검증(여행 기간 밖 등록 방지 등)을 그대로 재사용합니다.
-
-### 사용 모델
-
-- 기본값: `claude-haiku-4-5-20251001` (비용 효율 우선)
-- `appsettings.json`의 `Anthropic:Model` 값으로 다른 모델(예: `claude-sonnet-5`)로 교체 가능. 별도 코드 수정 불필요.
-
-### 보안
-
-- 시스템 프롬프트에 프롬프트 인젝션 방어 문구 포함 (사용자 메시지를 항상 데이터로만 취급, 역할/스키마 이탈 지시 무시)
-- 대화 이력은 최근 16개 메시지로 슬라이딩 윈도우 관리
-- `Anthropic:ApiKey`는 코드/설정 파일에 하드코딩하지 않고 `dotnet user-secrets`로만 관리
-
-## 프론트엔드 (`frontend/testBuild01/`)
-
-| 구성 요소 | 위치 | 설명 |
-|---|---|---|
-| `AiChatScreen` | `ui/aichat/AiChatScreen.kt` | 대화창 + 추천 카드 UI |
-| `AiChatViewModel` | `ui/aichat/AiChatViewModel.kt` | 세션/대화 상태 관리, API 연동 |
-| `PlacesRepository` | `data/repository/PlacesRepository.kt` | Google Places API로 추천 장소의 대표 사진 조회 |
-| `PlacesApiService` | `data/network/PlacesApiService.kt` | Places "Find Place from Text" Retrofit 인터페이스 |
-
-추천 카드의 사진은 LLM 응답에서 받지 않습니다 (LLM이 존재하지 않는 이미지 URL을 생성하는 것을 방지). 서버가 검증된 추천에만 `IPlaceImageProvider`(설정 `PlaceImage:Provider`, 현재 `Mock` = 항상 사진 없음)로 `imageUrl`을 채우고, `imageUrl`이 null이면 앱이 `placeName`으로 Google Places API를 별도 호출하며, 그래도 없거나 이미지 로딩에 실패하면 "사진 없음" 플레이스홀더를 보여줍니다.
 
 ## 실행 전 준비
 
@@ -76,22 +64,33 @@ POST /api/Trip/{tripId}/AiChat/sessions/{sessionId}/messages
 ```
 cd backend/TravelApp.WebAPI
 dotnet user-secrets set "Anthropic:ApiKey" "발급받은_키"
+dotnet user-secrets set "Tmap:AppKey" "발급받은_키"
+dotnet user-secrets set "Jwt:Key" "충분히_긴_임의_문자열"
+dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Port=5432;Database=TravelDb;Username=postgres;Password=..."
 dotnet ef database update
 ```
 
-로컬 개발 시 `ConnectionStrings:DefaultConnection`, `Jwt:Key`, `Tmap:AppKey` 같은 시크릿은 `appsettings.json`(플레이스홀더만 있음)을 고치지 말고 `dotnet user-secrets set "<키>" "<값>"`으로 설정하세요. 운영에서는 환경변수(`ConnectionStrings__DefaultConnection`, `Jwt__Key` 등)가 우선하며, 플레이스홀더가 남아 있으면 시작 시 경고 로그가 남습니다.
+`appsettings.json`에는 플레이스홀더만 있고 실제 값은 커밋하지 않습니다. 로컬 개발은 `dotnet user-secrets`로, 운영 배포는 같은 이름의 환경변수(`Jwt__Key` 등)로 주입합니다. 시크릿이 플레이스홀더로 남아 있으면 시작 시 경고 로그가 남고, `Anthropic:ApiKey`가 없으면 앱이 기동 즉시 종료됩니다(의도된 fail-fast).
 
 **프론트엔드**
 
-`local.properties`에 `google_maps_api_key`가 등록되어 있어야 하며, 해당 키에 **Maps SDK for Android**와 **Places API**가 모두 활성화되어 있어야 합니다.
-
-## 알려진 제한사항
-
-- 서버는 일정 **기간**(날짜) 밖 등록만 막고, 같은 날 **시간대 겹침**은 검증하지 않습니다. 현재는 시스템 프롬프트로만 겹치지 않게 유도하고 있습니다.
-- `TripController.UpdateTrip`의 라우트가 `[HttpPut("id")]`로 되어있어(`{id}`가 아님) 여행 정보 수정 API가 정상 동작하지 않습니다. 이 브랜치 범위 밖의 기존 이슈입니다.
-- Tmap POI 응답에는 휴관/임시휴업 여부 필드가 없어 `PlaceRecommendationGrounder.IsOperatingAsOf`가 이를 감지하지 못합니다(예: 국립한글박물관 휴관 사례). 별도 데이터 소스(네이버 플레이스, 공공 API 등) 연동이 필요한 별개 작업으로 분리했습니다.
+`local.properties`에 `google_maps_api_key`가 등록되어 있어야 하며, 해당 키에 **Maps SDK for Android**와 **Places API**가 모두 활성화되어 있어야 합니다. FCM을 쓰려면 `app/google-services.json`이 필요하지만, 없어도 나머지 기능은 정상 동작합니다(FCM 관련 호출만 조용히 건너뜀).
 
 ## 테스트
 
-- Mock 응답으로 UI/UX 흐름 검증 후 실제 Anthropic API로 교체
-- 프롬프트 인젝션(시스템 프롬프트 노출 시도, 역할 이탈 유도, JSON 스키마 이탈 유도 등) 수동 테스트 완료
+```
+cd backend && dotnet test TravelApp.WebAPI.slnx
+cd frontend/testBuild01 && ./gradlew testDebugUnitTest
+```
+
+백엔드는 컨트롤러별 유닛테스트(EF Core InMemory DB 사용), 프론트엔드는 OCR 추출·바코드 파싱·정산 계산 등 순수 로직 위주로 JVM 유닛테스트를 갖추고 있습니다.
+
+## 알려진 제한사항
+
+- Tmap POI 응답에 휴관/임시휴업 여부 필드가 없어, 학습 시점 지식으로 이미 폐업했거나 휴관 중인 장소를 AI가 추천할 가능성을 완전히 막지는 못합니다. 별도 데이터 소스 연동이 필요한 후속 작업입니다.
+- Tmap의 배치 경로 매트릭스 API(`/tmap/matrix`)는 존재가 확인됐지만, 실시간 정체 반영 여부가 불확실해 현재 경로 최적화는 지점 쌍마다 개별 호출하는 방식을 유지하고 있습니다.
+- 야놀자/여기어때 예약 딥링크는 정확한 검색 URL 패턴을 확인하지 못해 아직 추가하지 않았습니다.
+
+## 더 자세한 내용
+
+전체 API 명세는 [`backend/README.md`](backend/README.md)를 참고하세요.

@@ -11,7 +11,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.example.testbuild01.data.model.TripResponse
+import com.example.testbuild01.data.network.AuthSession
 import com.example.testbuild01.data.network.RetrofitClient
+import kotlinx.coroutines.launch
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
@@ -21,9 +23,11 @@ import retrofit2.Response
 fun ProjectSelectionScreen(
     onProjectSelected: (TripResponse) -> Unit,
     onCreateTripSelected: () -> Unit,
-    onTicketsSelected: () -> Unit = {}
+    onTicketsSelected: () -> Unit = {},
+    onLogout: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
 
     var trips by remember {
         mutableStateOf<List<TripResponse>>(emptyList())
@@ -78,6 +82,14 @@ fun ProjectSelectionScreen(
                 actions = {
                     TextButton(onClick = onTicketsSelected) {
                         Text("티켓")
+                    }
+                    TextButton(onClick = {
+                        coroutineScope.launch {
+                            AuthSession.logout(context)
+                            onLogout()
+                        }
+                    }) {
+                        Text("로그아웃")
                     }
                 }
             )

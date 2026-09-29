@@ -226,9 +226,46 @@ public class ExpenseControllerTests
         Assert.Equal(list.Single(e => e.Amount == 5000m).Splits.Single().UserId, 2);
     }
 
-    // TODO: 수정/삭제 시 분담 교체, 예산 설정 권한(Owner 전용) 통합 테스트
-    [Fact(Skip = "skeleton")]
-    public Task UpdateExpense_ReplacesSplits() => Task.CompletedTask;
+    [Fact]
+    public async Task UpdateExpense_ReplacesSplits()
+    {
+        var (controller, db) = Create();
+        SeedTrip(db, null);
+        var expense = new SharedExpense
+        {
+            TripId = 1,
+            PaidByUserId = 1,
+            Amount = 10000m,
+            Category = ExpenseCategory.FOOD,
+            Splits = new List<ExpenseSplit>
+            {
+                new() { UserId = 1, ShareAmount = 4000m },
+                new() { UserId = 2, ShareAmount = 6000m }
+            }
+        };
+        db.Expenses.Add(expense);
+        db.SaveChanges();
+
+        var result = await controller.UpdateExpense(expense.Id, new ExpenseUpsertDto
+        {
+            PaidByUserId = 2,
+            Amount = 8000m,
+            Category = ExpenseCategory.TRANSPORT,
+            Date = DateTime.UtcNow,
+            Splits = new List<ExpenseSplitDto> { new() { UserId = 2, ShareAmount = 8000m } }
+        });
+
+        var dto = (ExpenseResponseDto)Assert.IsType<OkObjectResult>(result.Result).Value!;
+        var split = Assert.Single(dto.Splits);
+        Assert.Equal(2, split.UserId);
+        Assert.Equal(8000m, split.ShareAmount);
+
+        // 이전 분담(userId=1의 4000원)이 남거나 합쳐지지 않고 완전히 교체됐는지 DB에서 직접 확인한다.
+        var persistedSplits = await db.ExpenseSplits.Where(s => s.ExpenseId == expense.Id).ToListAsync();
+        var persistedSplit = Assert.Single(persistedSplits);
+        Assert.Equal(2, persistedSplit.UserId);
+        Assert.Equal(8000m, persistedSplit.ShareAmount);
+    }
 
     // ---- 정산 확정(finalize) / 조회 ----
 

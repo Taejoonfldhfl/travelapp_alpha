@@ -110,6 +110,18 @@ namespace TravelApp.WebAPI.Controllers
             }
 
             int userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
+            // 같은 기기에서 다른 계정으로 로그인하면 같은 FCM 토큰이 이전 계정 행에 남아있을 수 있다.
+            // 그대로 두면 이전 계정도 이 기기로 가는 알림을 계속 받으므로, 다른 사용자 소유의 동일 토큰
+            // 행은 먼저 지운다(계정당 토큰 1개, 토큰당 계정 1개를 함께 보장).
+            var otherOwners = await _context.DeviceTokens
+                .Where(d => d.Token == request.Token && d.UserId != userId)
+                .ToListAsync();
+            if (otherOwners.Count > 0)
+            {
+                _context.DeviceTokens.RemoveRange(otherOwners);
+            }
+
             var existing = await _context.DeviceTokens.FirstOrDefaultAsync(d => d.UserId == userId);
             if (existing == null)
             {
@@ -122,6 +134,22 @@ namespace TravelApp.WebAPI.Controllers
             }
 
             await _context.SaveChangesAsync();
+            return NoContent();
+        }
+
+        // 5. FCM 디바이스 토큰 삭제 (로그아웃 시 호출). 등록된 게 없어도 204.
+        [HttpDelete("device-token")]
+        [Authorize]
+        public async Task<IActionResult> DeleteDeviceToken()
+        {
+            int userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+            var existing = await _context.DeviceTokens.FirstOrDefaultAsync(d => d.UserId == userId);
+            if (existing != null)
+            {
+                _context.DeviceTokens.Remove(existing);
+                await _context.SaveChangesAsync();
+            }
+
             return NoContent();
         }
 

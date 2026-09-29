@@ -72,4 +72,62 @@ public class UserControllerTests
 
         Assert.IsType<BadRequestObjectResult>(result);
     }
+
+    private static UserController CreateFor(ApplicationDbContext db, int userId, string email)
+    {
+        db.Users.Add(new User { Id = userId, Email = email, PasswordHash = "x", Nickname = "테스터" + userId });
+        db.SaveChanges();
+
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection().Build();
+        return new UserController(db, configuration)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = new ClaimsPrincipal(new ClaimsIdentity(
+                        new[] { new Claim(ClaimTypes.NameIdentifier, userId.ToString()) }, "test"))
+                }
+            }
+        };
+    }
+
+    // 같은 기기에서 다른 계정으로 로그인해 같은 FCM 토큰을 등록하면, 이전 계정 쪽 행은
+    // 지워지고 새 계정으로 옮겨가야 한다(그렇지 않으면 이전 계정도 이 기기 알림을 계속 받는다).
+    [Fact]
+    public async Task UpsertDeviceToken_SameTokenRegisteredByAnotherAccount_MovesTokenToNewAccount()
+    {
+        var (controller1, db) = Create(currentUserId: 1);
+        await controller1.UpsertDeviceToken(new DeviceTokenUpsertDto { Token = "shared-token" });
+
+        var controller2 = CreateFor(db, userId: 2, email: "u2@test.com");
+        var result = await controller2.UpsertDeviceToken(new DeviceTokenUpsertDto { Token = "shared-token" });
+
+        Assert.IsType<NoContentResult>(result);
+        var row = Assert.Single(db.DeviceTokens);
+        Assert.Equal(2, row.UserId);
+        Assert.Equal("shared-token", row.Token);
+    }
+
+    [Fact]
+    public async Task DeleteDeviceToken_ExistingToken_RemovesRow()
+    {
+        var (controller, db) = Create();
+        await controller.UpsertDeviceToken(new DeviceTokenUpsertDto { Token = "token-1" });
+
+        var result = await controller.DeleteDeviceToken();
+
+        Assert.IsType<NoContentResult>(result);
+        Assert.Empty(db.DeviceTokens);
+    }
+
+    [Fact]
+    public async Task DeleteDeviceToken_NoTokenRegistered_StillReturnsNoContent()
+    {
+        var (controller, _) = Create();
+
+        var result = await controller.DeleteDeviceToken();
+
+        Assert.IsType<NoContentResult>(result);
+    }
 }

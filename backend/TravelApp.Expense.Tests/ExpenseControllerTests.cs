@@ -192,6 +192,77 @@ public class ExpenseControllerTests
         Assert.IsType<BadRequestObjectResult>(result.Result);
     }
 
+    // ---- 예산 초과 푸시: "초과 아님 -> 초과"로 바뀌는 순간에만 보낸다 ----
+
+    [Fact]
+    public async Task CreateExpense_CrossingFromUnderToOverBudget_NotifiesOnce()
+    {
+        var spy = new SpyPushNotifier();
+        var (controller, db) = Create(pushNotifier: spy);
+        SeedTrip(db, 50000m);
+
+        await controller.CreateExpense(1, new ExpenseUpsertDto
+        {
+            PaidByUserId = 1, Amount = 30000m, Category = ExpenseCategory.FOOD,
+            Date = DateTime.UtcNow, SplitMemberIds = new List<int> { 1 }
+        });
+        Assert.Empty(spy.Calls); // 아직 예산(50000) 이내
+
+        await controller.CreateExpense(1, new ExpenseUpsertDto
+        {
+            PaidByUserId = 1, Amount = 30000m, Category = ExpenseCategory.FOOD,
+            Date = DateTime.UtcNow, SplitMemberIds = new List<int> { 1 }
+        });
+
+        var call = Assert.Single(spy.Calls); // 60000 > 50000으로 전환된 순간 한 번만
+        Assert.Equal("예산 초과", call.Title);
+    }
+
+    [Fact]
+    public async Task CreateExpense_AlreadyOverBudget_DoesNotNotifyAgain()
+    {
+        var spy = new SpyPushNotifier();
+        var (controller, db) = Create(pushNotifier: spy);
+        SeedTrip(db, 50000m);
+        await controller.CreateExpense(1, new ExpenseUpsertDto
+        {
+            PaidByUserId = 1, Amount = 60000m, Category = ExpenseCategory.FOOD,
+            Date = DateTime.UtcNow, SplitMemberIds = new List<int> { 1 }
+        });
+        Assert.Single(spy.Calls); // 첫 지출로 이미 초과 전환됨
+
+        await controller.CreateExpense(1, new ExpenseUpsertDto
+        {
+            PaidByUserId = 1, Amount = 10000m, Category = ExpenseCategory.FOOD,
+            Date = DateTime.UtcNow, SplitMemberIds = new List<int> { 1 }
+        });
+
+        Assert.Single(spy.Calls); // 이미 초과 상태에서 더 써도 추가로 알리지 않음
+    }
+
+    [Fact]
+    public async Task UpdateExpense_CrossingFromUnderToOverBudget_NotifiesOnce()
+    {
+        var spy = new SpyPushNotifier();
+        var (controller, db) = Create(pushNotifier: spy);
+        SeedTrip(db, 50000m);
+        var created = await controller.CreateExpense(1, new ExpenseUpsertDto
+        {
+            PaidByUserId = 1, Amount = 30000m, Category = ExpenseCategory.FOOD,
+            Date = DateTime.UtcNow, SplitMemberIds = new List<int> { 1 }
+        });
+        var dto = (ExpenseResponseDto)Assert.IsType<OkObjectResult>(created.Result).Value!;
+        Assert.Empty(spy.Calls);
+
+        await controller.UpdateExpense(dto.Id, new ExpenseUpsertDto
+        {
+            PaidByUserId = 1, Amount = 60000m, Category = ExpenseCategory.FOOD,
+            Date = DateTime.UtcNow, SplitMemberIds = new List<int> { 1 }
+        });
+
+        Assert.Single(spy.Calls); // 수정으로 30000 -> 60000, 예산(50000) 초과 전환
+    }
+
     [Fact]
     public async Task GetExpenses_IncludesSplitsForEachExpense()
     {
@@ -322,6 +393,41 @@ public class ExpenseControllerTests
         var call = Assert.Single(spy.Calls);
         Assert.Equal(1, call.TripId);
         Assert.Equal(1, call.ExcludeUserId); // 확정한 본인은 제외
+    }
+
+    // ---- 정산 확정 멱등화: 결과가 그대로면 새 스냅샷/알림 없이 기존 확정본을 돌려준다 ----
+
+    [Fact]
+    public async Task FinalizeSettlement_CalledTwiceWithSameState_IsIdempotent()
+    {
+        var spy = new SpyPushNotifier();
+        var (controller, db) = Create(currentUserId: 1, pushNotifier: spy);
+        SeedTrip(db, null);
+        AddExpenseWithSplit(db, payerId: 1, amount: 10000m, shareUserId: 2, shareAmount: 4000m);
+
+        var first = (SettlementDto)Assert.IsType<OkObjectResult>((await controller.FinalizeSettlement(1)).Result).Value!;
+        var second = (SettlementDto)Assert.IsType<OkObjectResult>((await controller.FinalizeSettlement(1)).Result).Value!;
+
+        Assert.Equal(first.Id, second.Id);
+        Assert.Single(db.Settlements);
+        Assert.Single(spy.Calls);
+    }
+
+    [Fact]
+    public async Task FinalizeSettlement_AfterExpenseChanges_CreatesNewSnapshotAndNotifiesAgain()
+    {
+        var spy = new SpyPushNotifier();
+        var (controller, db) = Create(currentUserId: 1, pushNotifier: spy);
+        SeedTrip(db, null);
+        AddExpenseWithSplit(db, payerId: 1, amount: 10000m, shareUserId: 2, shareAmount: 4000m);
+        var first = (SettlementDto)Assert.IsType<OkObjectResult>((await controller.FinalizeSettlement(1)).Result).Value!;
+
+        AddExpenseWithSplit(db, payerId: 2, amount: 6000m, shareUserId: 1, shareAmount: 3000m);
+        var second = (SettlementDto)Assert.IsType<OkObjectResult>((await controller.FinalizeSettlement(1)).Result).Value!;
+
+        Assert.NotEqual(first.Id, second.Id);
+        Assert.Equal(2, db.Settlements.Count());
+        Assert.Equal(2, spy.Calls.Count);
     }
 
     [Fact]

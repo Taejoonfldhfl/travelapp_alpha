@@ -35,6 +35,9 @@ namespace TravelApp.WebAPI.Controllers
         {
             if (!await IsMemberAsync(tripId, CurrentUserId)) return Forbid();
 
+            // 이 지출을 추가하기 전에 이미 예산을 초과한 상태였는지 먼저 구해 둔다(저장 후 비교용).
+            bool wasOverBudget = await IsOverBudgetAsync(tripId);
+
             var expense = new Expense { TripId = tripId };
             var error = await ApplyAsync(expense, request);
             if (error != null) return BadRequest(error);
@@ -42,7 +45,7 @@ namespace TravelApp.WebAPI.Controllers
             _context.Expenses.Add(expense);
             await _context.SaveChangesAsync();
 
-            await NotifyIfOverBudgetAsync(tripId);
+            await NotifyIfBudgetJustExceededAsync(tripId, wasOverBudget);
             return Ok(ToDto(expense));
         }
 
@@ -79,11 +82,16 @@ namespace TravelApp.WebAPI.Controllers
             if (expense == null) return NotFound();
             if (!await IsMemberAsync(expense.TripId, CurrentUserId)) return Forbid();
 
+            int tripId = expense.TripId;
+            // ApplyAsync가 추적 중인 expense.Amount를 바로 바꾸므로, 반드시 그 전에
+            // "수정 전" 예산 초과 여부를 구해야 한다(안 그러면 이미 바뀐 값으로 비교하게 된다).
+            bool wasOverBudget = await IsOverBudgetAsync(tripId);
+
             var error = await ApplyAsync(expense, request);
             if (error != null) return BadRequest(error);
 
             await _context.SaveChangesAsync();
-            await NotifyIfOverBudgetAsync(expense.TripId);
+            await NotifyIfBudgetJustExceededAsync(tripId, wasOverBudget);
             return Ok(ToDto(expense));
         }
 
@@ -172,12 +180,26 @@ namespace TravelApp.WebAPI.Controllers
             if (!await IsMemberAsync(tripId, CurrentUserId)) return Forbid();
 
             var transfers = await ComputeSettlementTransfersAsync(tripId);
+            string transfersJson = JsonSerializer.Serialize(transfers);
+
+            // 지출이 그대로라 방금 계산한 정산 결과가 이 여행의 가장 최근 확정본과 같다면, 새
+            // 스냅샷을 또 만들거나 알림을 다시 보내지 않고 기존 확정본을 그대로 돌려준다(멱등).
+            var latest = await _context.Settlements
+                .Where(s => s.TripId == tripId)
+                .OrderByDescending(s => s.FinalizedAt)
+                .ThenByDescending(s => s.Id)
+                .FirstOrDefaultAsync();
+
+            if (latest != null && latest.TransfersJson == transfersJson)
+            {
+                return Ok(ToSettlementDto(latest, transfers));
+            }
 
             var settlement = new Settlement
             {
                 TripId = tripId,
                 FinalizedByUserId = CurrentUserId,
-                TransfersJson = JsonSerializer.Serialize(transfers)
+                TransfersJson = transfersJson
             };
             _context.Settlements.Add(settlement);
             await _context.SaveChangesAsync();
@@ -245,9 +267,20 @@ namespace TravelApp.WebAPI.Controllers
             };
         }
 
-        // 다른 멤버의 지출로 예산이 초과된 경우를 위한 서버 푸시 지점 (현재는 Mock 이 로그만 남김)
-        private async Task NotifyIfOverBudgetAsync(int tripId)
+        private async Task<bool> IsOverBudgetAsync(int tripId)
         {
+            var trip = await _context.Trips.AsNoTracking().FirstOrDefaultAsync(t => t.Id == tripId);
+            if (trip == null) return false;
+            return (await BuildBudgetSummaryAsync(trip)).IsOverBudget;
+        }
+
+        // 다른 멤버의 지출로 예산이 초과된 경우를 위한 서버 푸시 지점 (현재는 Mock 이 로그만 남김).
+        // 이미 초과 상태였다면(wasOverBudget=true) 지출이 더 늘어도 매번 알리지 않고, "초과 아님 ->
+        // 초과"로 바뀌는 순간에만 알린다.
+        private async Task NotifyIfBudgetJustExceededAsync(int tripId, bool wasOverBudget)
+        {
+            if (wasOverBudget) return;
+
             var trip = await _context.Trips.AsNoTracking().FirstOrDefaultAsync(t => t.Id == tripId);
             if (trip == null) return;
             var summary = await BuildBudgetSummaryAsync(trip);

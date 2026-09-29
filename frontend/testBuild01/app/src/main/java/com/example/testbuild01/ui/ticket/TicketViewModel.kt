@@ -12,6 +12,7 @@ import com.example.testbuild01.MainApplication
 import com.example.testbuild01.data.hotel.HotelOcrCandidate
 import com.example.testbuild01.data.local.TicketType
 import com.example.testbuild01.data.model.Ticket
+import com.example.testbuild01.data.ticket.TicketOcrCandidate
 import com.example.testbuild01.data.network.RemoteResult
 import com.example.testbuild01.data.network.SyncErrorKind
 import com.example.testbuild01.data.repository.HotelScheduleLinker
@@ -50,6 +51,10 @@ class TicketViewModel(
     var hotelOcrCandidate by mutableStateOf<HotelOcrCandidate?>(null)
         private set
 
+    /** 항공권/버스표 OCR로 얻은 후보값. 바코드가 없거나 인식이 안 될 때의 대안 경로. */
+    var ticketOcrCandidate by mutableStateOf<TicketOcrCandidate?>(null)
+        private set
+
     /** 호텔 ↔ 여행 일정 연동 다이얼로그. 저장 후 목록 화면으로 돌아가도 이어서 보이도록 여기서 들고 있는다. */
     var linkDialog by mutableStateOf<HotelLinkDialog?>(null)
         private set
@@ -66,12 +71,14 @@ class TicketViewModel(
         scanResult = null
         editingTicket = null
         hotelOcrCandidate = null
+        ticketOcrCandidate = null
     }
 
     fun startEdit(ticket: Ticket) {
         scanResult = null
         editingTicket = ticket
         hotelOcrCandidate = null
+        ticketOcrCandidate = null
     }
 
     fun onScanned(result: ScanOutcome.Success) {
@@ -80,6 +87,10 @@ class TicketViewModel(
 
     fun onHotelScanned(candidate: HotelOcrCandidate) {
         hotelOcrCandidate = candidate
+    }
+
+    fun onTicketOcrScanned(candidate: TicketOcrCandidate) {
+        ticketOcrCandidate = candidate
     }
 
     fun save(draft: TicketDraft, onSaved: () -> Unit) {

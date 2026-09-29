@@ -52,6 +52,7 @@ private const val SCAN_HINT_DELAY_MS = 10_000L
 @Composable
 fun TicketScanScreen(
     onScanned: (ScanOutcome.Success) -> Unit,
+    onOcrScan: () -> Unit,
     onManualEntry: () -> Unit,
     onBack: () -> Unit
 ) {
@@ -132,6 +133,15 @@ fun TicketScanScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(horizontal = 16.dp)
                 )
+            }
+
+            TextButton(
+                onClick = onOcrScan,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp)
+            ) {
+                Text("바코드가 안 읽히나요? 문자 인식(OCR)으로 스캔")
             }
 
             Button(

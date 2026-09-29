@@ -40,6 +40,7 @@ import com.example.testbuild01.data.hotel.HotelOcrCandidate
 import com.example.testbuild01.data.local.HotelDetail
 import com.example.testbuild01.ui.ticket.TicketListScreen
 import com.example.testbuild01.ui.ticket.TicketManualEntryScreen
+import com.example.testbuild01.ui.ticket.TicketOcrScannerScreen
 import com.example.testbuild01.ui.ticket.TicketScanScreen
 import com.example.testbuild01.ui.ticket.TicketViewModel
 import android.net.Uri
@@ -358,9 +359,33 @@ fun TravelApp(pendingTicketId: MutableState<Long?> = mutableStateOf(null)) {
                         popUpTo("ticket_scan") { inclusive = true }
                     }
                 },
+                onOcrScan = {
+                    navController.navigate("ticket_ocr_scan") {
+                        popUpTo("ticket_scan") { inclusive = true }
+                    }
+                },
                 onManualEntry = {
                     navController.navigate("ticket_manual_entry") {
                         popUpTo("ticket_scan") { inclusive = true }
+                    }
+                },
+                onBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        composable("ticket_ocr_scan") {
+            TicketOcrScannerScreen(
+                onRecognized = { candidate ->
+                    ticketViewModel.onTicketOcrScanned(candidate)
+                    navController.navigate("ticket_manual_entry") {
+                        popUpTo("ticket_ocr_scan") { inclusive = true }
+                    }
+                },
+                onManualEntry = {
+                    navController.navigate("ticket_manual_entry") {
+                        popUpTo("ticket_ocr_scan") { inclusive = true }
                     }
                 },
                 onBack = {

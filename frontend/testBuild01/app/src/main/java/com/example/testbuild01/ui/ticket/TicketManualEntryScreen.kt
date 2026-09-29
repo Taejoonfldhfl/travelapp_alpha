@@ -57,13 +57,14 @@ fun TicketManualEntryScreen(
     val context = LocalContext.current
     val editing = viewModel.editingTicket
     val scan = viewModel.scanResult
+    val ocr = viewModel.ticketOcrCandidate
 
-    var type by remember { mutableStateOf(editing?.type ?: TicketType.FLIGHT) }
-    var title by remember { mutableStateOf(editing?.title ?: "") }
-    var startMillis by remember { mutableStateOf(editing?.startDateTime) }
-    var from by remember { mutableStateOf(editing?.locationFrom ?: "") }
-    var to by remember { mutableStateOf(editing?.locationTo ?: "") }
-    var confirmation by remember { mutableStateOf(editing?.confirmationNumber ?: "") }
+    var type by remember { mutableStateOf(editing?.type ?: ocr?.type ?: TicketType.FLIGHT) }
+    var title by remember { mutableStateOf(editing?.title ?: ocr?.title ?: "") }
+    var startMillis by remember { mutableStateOf(editing?.startDateTime ?: ocr?.startDateTimeMillis) }
+    var from by remember { mutableStateOf(editing?.locationFrom ?: ocr?.locationFrom ?: "") }
+    var to by remember { mutableStateOf(editing?.locationTo ?: ocr?.locationTo ?: "") }
+    var confirmation by remember { mutableStateOf(editing?.confirmationNumber ?: ocr?.confirmationNumber ?: "") }
 
     // 스캔 결과가 있으면 그것을, 수정 중이면 기존 바코드를 유지한다.
     val barcodeValue = scan?.value ?: editing?.barcodeValue ?: ""
@@ -136,6 +137,13 @@ fun TicketManualEntryScreen(
                         }
                     }
                 }
+            }
+
+            if (ocr != null) {
+                Text(
+                    text = "문자 인식(OCR) 결과입니다. 잘못 읽힌 값이 있으면 아래에서 고쳐 주세요.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

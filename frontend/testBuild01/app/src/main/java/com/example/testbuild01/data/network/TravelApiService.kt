@@ -47,6 +47,10 @@ interface TravelApiService {
     @POST("api/User/device-token")
     suspend fun registerDeviceToken(@Body request: DeviceTokenRequest): Response<Unit>
 
+    // 로그아웃 시 현재 계정에 등록된 FCM 디바이스 토큰을 지운다. 등록된 게 없어도 204.
+    @DELETE("api/User/device-token")
+    suspend fun deleteDeviceToken(): Response<Unit>
+
     @GET("api/Trip")
     fun getTrips(): Call<List<TripResponse>>
 

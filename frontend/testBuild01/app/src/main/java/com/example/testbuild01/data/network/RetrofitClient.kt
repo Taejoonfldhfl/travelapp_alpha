@@ -29,7 +29,18 @@ object RetrofitClient {
                     )
                 }
 
-                chain.proceed(requestBuilder.build())
+                val response = chain.proceed(requestBuilder.build())
+
+                // 토큰을 실은 요청이 401이면 그 토큰은 더 이상 유효하지 않다는 뜻이다(만료/서버 재발급 등).
+                // 로그인/회원가입 자체의 401(자격 증명 오류)은 세션 만료가 아니므로 제외한다.
+                val path = originalRequest.url.encodedPath
+                val isAuthEndpoint = path == "/api/User/login" || path == "/api/User/register"
+                if (response.code == 401 && !token.isNullOrEmpty() && !isAuthEndpoint) {
+                    tokenManager.clearToken()
+                    AuthEvents.notifySessionExpired()
+                }
+
+                response
             }
             .build()
 

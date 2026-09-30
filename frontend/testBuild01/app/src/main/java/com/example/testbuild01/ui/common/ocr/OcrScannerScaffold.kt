@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalGetImage::class)
+@file:OptIn(ExperimentalMaterial3Api::class)
 
 package com.example.testbuild01.ui.common.ocr
 
@@ -157,6 +157,9 @@ fun OcrScannerScaffold(
     }
 }
 
+// kotlin.OptIn은 Kotlin 컴파일러 경고만 잠재우고 AGP의 UnsafeOptInUsageError lint 검사는 인식하지
+// 못해서(실측 확인), lint가 보는 androidx.annotation.OptIn을 직접 써야 한다.
+@androidx.annotation.OptIn(markerClass = [ExperimentalGetImage::class])
 private fun processOcrImage(proxy: ImageProxy, recognizer: TextRecognizer, onSuccess: (String) -> Unit) {
     val mediaImage = proxy.image
     if (mediaImage == null) {

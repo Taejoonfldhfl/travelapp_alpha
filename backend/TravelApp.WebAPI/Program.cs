@@ -11,6 +11,7 @@ using TravelApp.WebAPI.Services.HotelInfo;
 using TravelApp.WebAPI.Services.Llm;
 using TravelApp.WebAPI.Services.PlaceImage;
 using TravelApp.WebAPI.Services.PlaceSearch;
+using TravelApp.WebAPI.Services.PlaceStatus;
 using TravelApp.WebAPI.Services.Push;
 using TravelApp.WebAPI.Services.RouteOptimization;
 
@@ -135,14 +136,39 @@ namespace TravelApp.WebAPI
             builder.Services.AddHttpClient<TmapNearbyPlaceSearchProvider>();
 
             var placeSearchProviderName = builder.Configuration["PlaceSearch:Provider"] ?? "Mock";
-            if (string.Equals(placeSearchProviderName, "Tmap", StringComparison.OrdinalIgnoreCase))
+            var mockNearbyPlaceSearchProvider = new MockNearbyPlaceSearchProvider();
+            Func<IServiceProvider, INearbyPlaceSearchProvider> resolveInnerPlaceSearchProvider =
+                string.Equals(placeSearchProviderName, "Tmap", StringComparison.OrdinalIgnoreCase)
+                    ? sp => sp.GetRequiredService<TmapNearbyPlaceSearchProvider>()
+                    : _ => mockNearbyPlaceSearchProvider;
+
+            // 장소 영업상태(휴관/폐업) 보완: 설정("PlaceStatus:Provider")으로 Mock(항상 확인 안 함, 기본값)/Google 전환.
+            // Tmap POI 응답에는 영업상태 필드가 없어 위 검색 결과는 항상 Unknown인데, Google이면 위에서 고른
+            // 안쪽 provider(resolveInnerPlaceSearchProvider) 결과 중 Unknown인 것만 Google Places로 보완하는
+            // StatusEnrichingNearbyPlaceSearchProvider로 감싼다. Mock(기본값)이면 기존 INearbyPlaceSearchProvider
+            // 등록을 그대로 두어 동작 변경이 없다.
+            var placeStatusProviderName = builder.Configuration["PlaceStatus:Provider"] ?? "Mock";
+            if (string.Equals(placeStatusProviderName, "Google", StringComparison.OrdinalIgnoreCase))
             {
-                builder.Services.AddScoped<INearbyPlaceSearchProvider>(
-                    sp => sp.GetRequiredService<TmapNearbyPlaceSearchProvider>());
+                builder.Services.AddHttpClient<GooglePlacesOperatingStatusProvider>();
+                builder.Services.AddScoped<IPlaceOperatingStatusProvider>(
+                    sp => sp.GetRequiredService<GooglePlacesOperatingStatusProvider>());
+
+                builder.Services.AddScoped<INearbyPlaceSearchProvider>(sp =>
+                    new StatusEnrichingNearbyPlaceSearchProvider(
+                        resolveInnerPlaceSearchProvider(sp),
+                        sp.GetRequiredService<IPlaceOperatingStatusProvider>(),
+                        sp.GetRequiredService<ILogger<StatusEnrichingNearbyPlaceSearchProvider>>()));
+            }
+            else if (string.Equals(placeStatusProviderName, "Mock", StringComparison.OrdinalIgnoreCase))
+            {
+                builder.Services.AddSingleton<IPlaceOperatingStatusProvider, MockPlaceOperatingStatusProvider>();
+                builder.Services.AddScoped<INearbyPlaceSearchProvider>(resolveInnerPlaceSearchProvider);
             }
             else
             {
-                builder.Services.AddSingleton<INearbyPlaceSearchProvider, MockNearbyPlaceSearchProvider>();
+                throw new InvalidOperationException(
+                    $"알 수 없는 PlaceStatus:Provider '{placeStatusProviderName}'입니다. 현재 지원: Mock, Google");
             }
 
             // 챗봇 추천 카드의 장소 대표 사진: 설정("PlaceImage:Provider")으로 교체 가능하게 분리.

@@ -72,6 +72,11 @@ dotnet ef database update
 
 `appsettings.json`에는 플레이스홀더만 있고 실제 값은 커밋하지 않습니다. 로컬 개발은 `dotnet user-secrets`로, 운영 배포는 같은 이름의 환경변수(`Jwt__Key` 등)로 주입합니다. 시크릿이 플레이스홀더로 남아 있으면 시작 시 경고 로그가 남고, `Anthropic:ApiKey`가 없으면 앱이 기동 즉시 종료됩니다(의도된 fail-fast).
 
+`PlaceStatus:Provider`를 `Google`로 설정한 경우에만 아래 키가 필요합니다(기본값 `Mock`에서는 필요 없음):
+```
+dotnet user-secrets set "Google:PlacesApiKey" "발급받은_키"
+```
+
 **프론트엔드**
 
 `local.properties`에 `google_maps_api_key`가 등록되어 있어야 하며, 해당 키에 **Maps SDK for Android**와 **Places API**가 모두 활성화되어 있어야 합니다. FCM을 쓰려면 `app/google-services.json`이 필요하지만, 없어도 나머지 기능은 정상 동작합니다(FCM 관련 호출만 조용히 건너뜀).
@@ -87,7 +92,7 @@ cd frontend/testBuild01 && ./gradlew testDebugUnitTest
 
 ## 알려진 제한사항
 
-- Tmap POI 응답에 휴관/임시휴업 여부 필드가 없어, 학습 시점 지식으로 이미 폐업했거나 휴관 중인 장소를 AI가 추천할 가능성을 완전히 막지는 못합니다. 별도 데이터 소스 연동이 필요한 후속 작업입니다.
+- Tmap POI 응답에는 휴관/임시휴업 여부 필드가 없습니다(항상 Unknown). `PlaceStatus:Provider`를 `Google`로 설정하면 영업상태를 모르는 장소만 Google Places API(New)의 `businessStatus`(OPERATIONAL/CLOSED_TEMPORARILY/CLOSED_PERMANENTLY)로 보완합니다. 기본값(`Mock`)에서는 이 보완이 켜지지 않고 기존 동작(Unknown 유지)이 그대로 유지됩니다.
 - Tmap의 배치 경로 매트릭스 API(`/tmap/matrix`)는 존재가 확인됐지만, 실시간 정체 반영 여부가 불확실해 현재 경로 최적화는 지점 쌍마다 개별 호출하는 방식을 유지하고 있습니다.
 - 야놀자/여기어때 예약 딥링크는 정확한 검색 URL 패턴을 확인하지 못해 아직 추가하지 않았습니다.
 
